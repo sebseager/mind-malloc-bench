@@ -7,7 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define N_SLOTS (1 << 2)
+#define N_SLOTS (1 << 10)
 
 typedef struct slot {
   unsigned long long n_allocs;
