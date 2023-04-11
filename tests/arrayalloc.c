@@ -7,53 +7,73 @@
 #include <time.h>
 #include <unistd.h>
 
-#define N_ARRAYS (1 << 10)
+#define N_SLOTS (1 << 5)
+
 #define ERROR(...)                                                             \
   {                                                                            \
     printf(__VA_ARGS__);                                                       \
     return 1;                                                                  \
   }
 
-int *arrays[N_ARRAYS] = {0};
+typedef struct slot {
+  unsigned long long n_allocs;
+  unsigned long long total_bytes;
+  unsigned long long current_bytes;
+  void *bytes;
+} slot_t;
 
-// get random unsigned int from /dev/urandom
-unsigned int rand_uint() {
-  int fd = open("/dev/urandom", O_RDONLY);
-  if (fd < 0)
-    ERROR("failed to open /dev/urandom");
-  unsigned int r;
-  if (read(fd, &r, sizeof(r)) != sizeof(r))
-    ERROR("failed to read from /dev/urandom");
-  close(fd);
-  return r;
+static unsigned long long lcg_seed = 0;
+slot_t slots[N_SLOTS] = {0};
+
+// initialize seed for linear congruential generator (LCG)
+void lcg_init(unsigned long long seed) { lcg_seed = seed; }
+
+// return a pseudorandom unsigned int in range [0, 2^64 - 1]
+// uses MMIX LCG values from Knuth
+// should be a tad bit faster than rand()
+unsigned long long lcg_get() {
+  lcg_seed = lcg_seed * 6364136223846793005ULL + 1442695040888963407ULL;
+  return lcg_seed;
 }
 
-// generate random unsigned int in [min_len, max_len]
+// return a pseudorandom unsigned int in range [min, max]
 // beware that this is likely not perfectly uniform due to modulo bias
 // (front of the range may be more likely if max_len does not divide UINT_MAX)
 unsigned int rand_between(unsigned int min, unsigned int max) {
-  assert(min <= max);
-  assert(max < UINT_MAX); // avoid overflow since we add 1 to max_len
-  return min + (rand_uint() % (max - min + 1));
+  return min + (lcg_get() % (max - min + 1));
 }
 
-int *rand_alloc(unsigned int min_len, unsigned int max_len) {
-  unsigned int len = rand_between(min_len, max_len);
-  return malloc(len * sizeof(int));
+void toggle_slot(int i, int min_len, int max_len) {
+  if (slots[i].bytes == NULL) {
+    unsigned int bytes = rand_between(min_len, max_len);
+    slots[i].bytes = malloc(bytes);
+    // update statistics
+    slots[i].n_allocs += 1;
+    slots[i].total_bytes += bytes;
+    slots[i].current_bytes = bytes;
+  } else {
+    free(slots[i].bytes);
+    slots[i].bytes = NULL;
+    // update statistics
+    slots[i].current_bytes = 0;
+  }
 }
 
 void run(int n_allocs, int min_len, int max_len) {
   // allocate a bunch of arrays
   for (size_t i = 0; i < n_allocs; i++) {
-    unsigned int j = rand_between(0, N_ARRAYS - 1);
-    if (arrays[j] == NULL) {
-      arrays[j] = rand_alloc(min_len, max_len);
-    } else {
-      free(arrays[j]);
-      arrays[j] = NULL;
-    }
+    unsigned int j = rand_between(0, N_SLOTS - 1);
+    toggle_slot(j, min_len, max_len);
   }
-  // leak memory -- ok
+  // leak memory when done -- ok
+}
+
+void print_stats() {
+  printf("slot\tallocs\ttotal_bytes\tcurrent_bytes\n");
+  for (size_t i = 0; i < N_SLOTS; i++) {
+    printf("%zu\t%llu\t%llu\t%llu\n", i, slots[i].n_allocs,
+           slots[i].total_bytes, slots[i].current_bytes);
+  }
 }
 
 int main(int argc, char **argv) {
@@ -72,7 +92,9 @@ int main(int argc, char **argv) {
   assert(n_allocs > 0);
   assert(min_len > 0);
   assert(max_len >= min_len);
+  assert(max_len < UINT_MAX); // in rand_between we may add 1 to max_len
 
   run(n_allocs, min_len, max_len);
+  print_stats();
   return 0;
 }
