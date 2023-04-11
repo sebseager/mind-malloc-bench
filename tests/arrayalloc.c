@@ -11,6 +11,7 @@
 
 typedef struct slot {
   unsigned long long n_allocs;
+  unsigned long long n_frees;
   unsigned long long total_bytes;
   unsigned long long current_bytes;
   void *bytes;
@@ -49,6 +50,7 @@ void toggle_slot(int i, int min_len, int max_len) {
     free(slots[i].bytes);
     slots[i].bytes = NULL;
     // update statistics
+    slots[i].n_frees += 1;
     slots[i].current_bytes = 0;
   }
 }
@@ -63,10 +65,10 @@ void run(int n_allocs, int min_len, int max_len) {
 }
 
 void print_stats() {
-  printf("slot\t      allocs\t       total_bytes\tcurrent_bytes\n");
+  printf("slot\t    allocs\t     frees\t       total_bytes\tcurrent_bytes\n");
   for (size_t i = 0; i < N_SLOTS; i++) {
-    printf("%zu\t%12llu\t%18llu\t%llu\n", i, slots[i].n_allocs,
-           slots[i].total_bytes, slots[i].current_bytes);
+    printf("%zu\t%10llu\t%10llu\t%18llu\t%llu\n", i, slots[i].n_allocs,
+           slots[i].n_frees, slots[i].total_bytes, slots[i].current_bytes);
   }
 }
 
