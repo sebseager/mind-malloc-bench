@@ -7,7 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define N_SLOTS (1 << 10)
+#define N_SLOTS (1 << 2)
 
 typedef struct slot {
   unsigned long long n_allocs;
@@ -65,9 +65,10 @@ void run(int n_allocs, int min_len, int max_len) {
 }
 
 void print_stats() {
-  printf("slot\t    allocs\t     frees\t       total_bytes\tcurrent_bytes\n");
+  printf("%6s %12s %12s %20s %18s\n", "slot", "allocs", "frees", "total bytes",
+         "current bytes");
   for (size_t i = 0; i < N_SLOTS; i++) {
-    printf("%zu\t%10llu\t%10llu\t%18llu\t%llu\n", i, slots[i].n_allocs,
+    printf("%6zu %12llu %12llu %20llu %18llu\n", i, slots[i].n_allocs,
            slots[i].n_frees, slots[i].total_bytes, slots[i].current_bytes);
   }
 }
