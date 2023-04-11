@@ -76,7 +76,7 @@ void print_stats() {
 void print_time(struct timespec *start, struct timespec *end) {
   double elapsed = (end->tv_sec - start->tv_sec) +
                    (end->tv_nsec - start->tv_nsec) / 1000000000.0;
-  printf("\nelapsed time: %f seconds\n", elapsed);
+  printf("elapsed time: %f seconds\n", elapsed);
 }
 
 int main(int argc, char **argv) {
@@ -108,6 +108,7 @@ int main(int argc, char **argv) {
   // print statistics
   // to avoid messing with strace, print to stdout and don't alloc anything
   print_time(&start, &end);
+  printf("\n");
   print_stats();
 
   return 0;
