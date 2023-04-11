@@ -7,13 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define N_SLOTS (1 << 5)
-
-#define ERROR(...)                                                             \
-  {                                                                            \
-    printf(__VA_ARGS__);                                                       \
-    return 1;                                                                  \
-  }
+#define N_SLOTS (1 << 4)
 
 typedef struct slot {
   unsigned long long n_allocs;
@@ -69,9 +63,9 @@ void run(int n_allocs, int min_len, int max_len) {
 }
 
 void print_stats() {
-  printf("slot\tallocs\ttotal_bytes\tcurrent_bytes\n");
+  printf("slot\t      allocs\t       total_bytes\tcurrent_bytes\n");
   for (size_t i = 0; i < N_SLOTS; i++) {
-    printf("%zu\t%llu\t%llu\t%llu\n", i, slots[i].n_allocs,
+    printf("%zu\t%12llu\t%18llu\t%llu\n", i, slots[i].n_allocs,
            slots[i].total_bytes, slots[i].current_bytes);
   }
 }
@@ -94,6 +88,7 @@ int main(int argc, char **argv) {
   assert(max_len >= min_len);
   assert(max_len < UINT_MAX); // in rand_between we may add 1 to max_len
 
+  lcg_init(time(NULL)); // initialize rng with current time in seconds
   run(n_allocs, min_len, max_len);
   print_stats();
   return 0;
