@@ -106,8 +106,8 @@ int main(int argc, char **argv) {
   clock_gettime(CLOCK_MONOTONIC, &end);
 
   // print statistics
-  print_stats();
-  print_time(&start, &end);
+  // print_stats();
+  // print_time(&start, &end);
 
   return 0;
 }
