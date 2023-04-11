@@ -7,7 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define N_SLOTS (1 << 4)
+#define N_SLOTS (1 << 10)
 
 typedef struct slot {
   unsigned long long n_allocs;
@@ -72,6 +72,12 @@ void print_stats() {
   }
 }
 
+void print_time(struct timespec *start, struct timespec *end) {
+  double elapsed = (end->tv_sec - start->tv_sec) +
+                   (end->tv_nsec - start->tv_nsec) / 1000000000.0;
+  printf("\nelapsed time: %f seconds\n", elapsed);
+}
+
 int main(int argc, char **argv) {
   // check that two parameters are passed
   if (argc != 4) {
@@ -91,7 +97,16 @@ int main(int argc, char **argv) {
   assert(max_len < UINT_MAX); // in rand_between we may add 1 to max_len
 
   lcg_init(time(NULL)); // initialize rng with current time in seconds
+
+  // time the run
+  struct timespec start, end;
+  clock_gettime(CLOCK_MONOTONIC, &start);
   run(n_allocs, min_len, max_len);
+  clock_gettime(CLOCK_MONOTONIC, &end);
+
+  // print statistics
   print_stats();
+  print_time(&start, &end);
+
   return 0;
 }
