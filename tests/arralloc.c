@@ -17,25 +17,25 @@ typedef struct slot {
   void *bytes;
 } slot_t;
 
-static unsigned long long lcg_seed = 0;
+static unsigned long long lgc_seed = 0;
 slot_t slots[N_SLOTS] = {0};
 
 // initialize seed for linear congruential generator (LCG)
-void lcg_init(unsigned long long seed) { lcg_seed = seed; }
+void lcg_init(unsigned long long seed) { lgc_seed = seed; }
 
 // return a pseudorandom unsigned int in range [0, 2^64 - 1]
 // uses MMIX LCG values from Knuth
-// should be a tad bit faster than rand()
-unsigned long long lcg_get() {
-  lcg_seed = lcg_seed * 6364136223846793005ULL + 1442695040888963407ULL;
-  return lcg_seed;
+// should be about as fast as rand()
+unsigned long long lcg_rand() {
+  lgc_seed = lgc_seed * 6364136223846793005ULL + 1442695040888963407ULL;
+  return lgc_seed;
 }
 
 // return a pseudorandom unsigned int in range [min, max]
 // beware that this is likely not perfectly uniform due to modulo bias
 // (front of the range may be more likely if max_len does not divide UINT_MAX)
 unsigned int rand_between(unsigned int min, unsigned int max) {
-  return min + (lcg_get() % (max - min + 1));
+  return min + (lcg_rand() % (max - min + 1));
 }
 
 void toggle_slot(int i, int min_len, int max_len) {
@@ -106,8 +106,9 @@ int main(int argc, char **argv) {
   clock_gettime(CLOCK_MONOTONIC, &end);
 
   // print statistics
-  // print_stats();
-  // print_time(&start, &end);
+  // to avoid messing with strace, print to stdout and don't alloc anything
+  print_time(&start, &end);
+  print_stats();
 
   return 0;
 }
