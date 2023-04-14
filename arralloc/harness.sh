@@ -7,9 +7,9 @@ PROG_NAME=$PARENT_DIR/memtest
 N_ITER=10
 
 # per-iteration params
-N_ALLOCS=$(((1<<15)+5))
-ONE_MB=$((1<<20))
-ONE_GB=$((1<<30))
+N_ALLOCS=$((1<<10))
+MIN_ALLOC=$((1<<10))
+MAX_ALLOC=$((1<<30))
 
 # setup
 mkdir -p $OUT_DIR
@@ -26,8 +26,8 @@ for i in $(seq 1 $N_ITER); do
     #        -ttt: print full UNIX timestamps
     #        -T: print call durations in seconds
     strace -e trace=memory -f -ttt -T \
-        $PROG_NAME $N_ALLOCS $ONE_MB $ONE_GB \
-        2> $OUT_DIR/strace_$i.out 1> $OUT_DIR/prog_$i.out
+        $PROG_NAME $N_ALLOCS $MIN_ALLOC $MAX_ALLOC \
+        2> $OUT_DIR/strace_$i.out # 1> $OUT_DIR/prog_$i.out
 done
 
 

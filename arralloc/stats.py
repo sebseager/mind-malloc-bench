@@ -10,7 +10,8 @@ import regex as re
 # Read the files into a single pandas DataFrame.
 def parse_strace(*files, out_file=None):
     dicts = []
-    for it, fp in enumerate(files):
+    for fp in files:
+        it = int(re.search(r"\d+", fp.name).group())  # get run number from file name
         with open(fp, "r") as f:
             for line in f:
                 line = line.strip()
@@ -21,7 +22,7 @@ def parse_strace(*files, out_file=None):
                 elts = line.split()
                 n_elts = len(elts)
                 try:
-                    d = {"run": it + 1}  # match 1-indexed file names in harness.sh
+                    d = {"run": it}
                     for i in range(n_elts):
                         if i == 0:
                             d["timestamp"] = float(elts[i])
@@ -32,15 +33,10 @@ def parse_strace(*files, out_file=None):
                                 d["size"] = int(elts[i].split(",")[0])
                             elif d["call"] == "munmap":
                                 d["size"] = int(elts[i].split(")")[0])
-                            else:
-                                continue
-                        else:
-                            if elts[i] == "=":
-                                d["return"] = int(elts[i + 1], 16)  # hex to int
-                                # drop < and > surrounding elapsed time
-                                d["elapsed"] = float(elts[i + 2][1:-1])
-                            else:
-                                continue
+                        if elts[i] == "=":
+                            d["return"] = elts[i + 1]  # as hex string
+                            # drop < and > surrounding elapsed time
+                            d["elapsed"] = float(elts[i + 2][1:-1])
                 except:
                     print(f"error parsing line: {line}")
                     continue
@@ -60,7 +56,8 @@ def parse_strace(*files, out_file=None):
 # To find freed_bytes we can do total_bytes - current_bytes.
 def parse_memtest(*files, out_file=None):
     dicts = []
-    for it, fp in enumerate(files):
+    for fp in files:
+        it = int(re.search(r"\d+", fp.name).group())  # get run number from file name
         with open(fp, "r") as f:
             elapsed = f.readline().strip().split()[1]  # TODO: unused right now
             header = f.readline().strip().split()
@@ -71,7 +68,7 @@ def parse_memtest(*files, out_file=None):
                 elts = line.split()
                 n_elts = len(elts)
                 try:
-                    d = {"run": it + 1}  # match 1-indexed file names in harness.sh
+                    d = {"run": it}
                     for i in range(n_elts):
                         d[header[i]] = int(elts[i])
                 except:
@@ -136,21 +133,26 @@ def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
     all_runs = []
     for run in strace_stats_df["run"].unique():
         stats = {"run": run}
-        srun_df = strace_stats_df[strace_stats_df["run"] == run]
-        mrun_df = memtest_stats_df[memtest_stats_df["run"] == run]
-        if srun_df.shape[0] == 0 or mrun_df.shape[0] == 0:
+        # warning: next two lines cast things to a float
+        srun_row = strace_stats_df[strace_stats_df["run"] == run].squeeze()
+        mrun_row = memtest_stats_df[memtest_stats_df["run"] == run].squeeze()
+        if srun_row.shape[0] == 0 or mrun_row.shape[0] == 0:
             print("skipping summary for run", run)
             continue
-        # total number of mmap/munmap calls -- ideal MIND allocator minimizes this
-        stats["n_mcalls"] = srun_df["n_mmap"].sum() + srun_df["n_munmap"].sum()
-        # ratio of memory used by program : memory given by kernel
+        # total number of mmap/munmap calls -- lower is better
+        stats["n_syscalls"] = int(srun_row["n_total"])
+        # malloc calls : mmap calls -- lower is better
+        stats["mmap_freq"] = mrun_row["n_allocs"] / srun_row["n_mmap"]
+        # number of mallocs/frees per kernel call -- higher is better
+        stats["call_eff"] = mrun_row["n_total"] / srun_row["n_total"]
+        # bytes used by program : bytes given by kernel
         # e.g. allocator could give 1GB for a 1KB allocation to reduce syscalls
-        stats["mmap_util"] = mrun_df["sz_allocs"].sum() / srun_df["sz_mmap"].sum()
-        # ratio of memory unmapped by kernel : memory freed by program
+        stats["mmap_util"] = mrun_row["sz_allocs"] / srun_row["sz_mmap"]
+        # bytes unmapped by kernel : bytes freed by program
         # e.g. allocator could never reclaim memory to reduce syscalls
-        stats["munmap_recl"] = srun_df["sz_munmap"].sum() / mrun_df["sz_frees"].sum()
+        stats["munmap_recl"] = srun_row["sz_munmap"] / mrun_row["sz_frees"]
         # overall memory overhead of allocator: (malloc - free) / (mmap - munmap)
-        stats["mem_overhead"] = mrun_df["sz_leaked"].sum() / srun_df["sz_net"].sum()
+        stats["mem_overhead"] = mrun_row["sz_leaked"] / srun_row["sz_net"]
         all_runs.append(stats)
 
     df = pd.DataFrame(all_runs)

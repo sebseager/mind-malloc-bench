@@ -8,7 +8,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define N_SLOTS (1 << 8)
+#define N_SLOTS (1 << 6)
 
 typedef struct slot {
   unsigned long long n_allocs;
@@ -47,11 +47,12 @@ unsigned int rand_between(unsigned int min, unsigned int max) {
 void toggle_slot(int i, int min_len, int max_len) {
   if (slots[i].bytes == NULL) {
     unsigned int bytes = rand_between(min_len, max_len);
-    slots[i].bytes = malloc(bytes);
+    unsigned int size = bytes * sizeof(int);
+    slots[i].bytes = malloc(size);
     // update statistics
     slots[i].n_allocs += 1;
-    slots[i].total_bytes += bytes;
-    slots[i].current_bytes = bytes;
+    slots[i].total_bytes += size;
+    slots[i].current_bytes = size;
   } else {
     free(slots[i].bytes);
     slots[i].bytes = NULL;
