@@ -27,7 +27,7 @@ for i in $(seq 1 $N_ITER); do
     #        -T: print call durations in seconds
     strace -e trace=memory -f -ttt -T \
         $PROG_NAME $N_ALLOCS $MIN_ALLOC $MAX_ALLOC \
-        2> $OUT_DIR/strace_$i.out # 1> $OUT_DIR/prog_$i.out
+        2> $OUT_DIR/strace_$i.out 1> $OUT_DIR/prog_$i.out
 done
 
 
