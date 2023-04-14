@@ -1,6 +1,5 @@
 .DS_Store
 *.o
 *.out
-
-# programs
-arralloc
+*.tsv
+memtest
