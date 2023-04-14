@@ -7,7 +7,7 @@ PROG_NAME=$PARENT_DIR/memtest
 N_ITER=10
 
 # per-iteration params
-N_ALLOCS=$((1<<15))
+N_ALLOCS=$(((1<<15)+5))
 ONE_MB=$((1<<20))
 ONE_GB=$((1<<30))
 

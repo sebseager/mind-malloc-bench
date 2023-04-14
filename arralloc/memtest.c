@@ -4,10 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/random.h>
 #include <time.h>
 #include <unistd.h>
 
-#define N_SLOTS (1 << 10)
+#define N_SLOTS (1 << 8)
 
 typedef struct slot {
   unsigned long long n_allocs;
@@ -17,25 +18,30 @@ typedef struct slot {
   void *bytes;
 } slot_t;
 
-static unsigned long long lgc_seed = 0;
 slot_t slots[N_SLOTS] = {0};
 
+static unsigned long long lgc_next = 0;
+
 // initialize seed for linear congruential generator (LCG)
-void lcg_init(unsigned long long seed) { lgc_seed = seed; }
+void lcg_init(unsigned long long seed) { lgc_next = seed; }
 
 // return a pseudorandom unsigned int in range [0, 2^64 - 1]
 // uses MMIX LCG values from Knuth
-// should be about as fast as rand()
+// beware that this is likely NOT perfectly uniform due to modulo bias
+// (front of the range may be more likely if max_len does not divide UINT_MAX)
 unsigned long long lcg_rand() {
-  lgc_seed = lgc_seed * 6364136223846793005ULL + 1442695040888963407ULL;
-  return lgc_seed;
+  lgc_next = lgc_next * 6364136223846793005ULL + 1442695040888963407ULL;
+  return lgc_next;
 }
 
 // return a pseudorandom unsigned int in range [min, max]
-// beware that this is likely not perfectly uniform due to modulo bias
-// (front of the range may be more likely if max_len does not divide UINT_MAX)
 unsigned int rand_between(unsigned int min, unsigned int max) {
-  return min + (lcg_rand() % (max - min + 1));
+  // return min + (rand() % (max - min + 1));
+
+  // use getrandom instead for actual randomness, doesn't add too much overhead
+  unsigned long long r;
+  getrandom(&r, sizeof(r), 0);
+  return min + (r % (max - min + 1));
 }
 
 void toggle_slot(int i, int min_len, int max_len) {
@@ -65,10 +71,10 @@ void run(int n_allocs, int min_len, int max_len) {
 }
 
 void print_stats() {
-  printf("%s %12s %12s %20s %18s\n", "index", "allocs", "frees", "total bytes",
-         "current bytes");
+  printf("%s %12s %12s %20s %18s\n", "slot_index", "allocs", "frees",
+         "total_bytes", "current_bytes");
   for (size_t i = 0; i < N_SLOTS; i++) {
-    printf("%5zu %12llu %12llu %20llu %18llu\n", i, slots[i].n_allocs,
+    printf("%10zu %12llu %12llu %20llu %18llu\n", i, slots[i].n_allocs,
            slots[i].n_frees, slots[i].total_bytes, slots[i].current_bytes);
   }
 }
@@ -76,7 +82,7 @@ void print_stats() {
 void print_time(struct timespec *start, struct timespec *end) {
   double elapsed = (end->tv_sec - start->tv_sec) +
                    (end->tv_nsec - start->tv_nsec) / 1000000000.0;
-  printf("elapsed time: %f seconds\n", elapsed);
+  printf("elapsed_secs %f\n", elapsed);
 }
 
 int main(int argc, char **argv) {
@@ -108,7 +114,6 @@ int main(int argc, char **argv) {
   // print statistics
   // to avoid messing with strace, print to stdout and don't alloc anything
   print_time(&start, &end);
-  printf("\n");
   print_stats();
 
   return 0;

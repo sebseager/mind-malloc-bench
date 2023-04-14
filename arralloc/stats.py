@@ -1,13 +1,14 @@
 from argparse import ArgumentParser
 from pathlib import Path
 import pandas as pd
+import regex as re
 
 # Each file is a list of memory-related calls recorded by strace
 # for a single run of arralloc. The format per-line is:
 # [timestamp] [call]([args]) = [return value] <[elapsed time]>
 # The file ends with a message like +++ exited with # +++
 # Read the files into a single pandas DataFrame.
-def strace_df(*files, out_file=None):
+def parse_strace(*files, out_file=None):
     dicts = []
     for it, fp in enumerate(files):
         with open(fp, "r") as f:
@@ -17,14 +18,13 @@ def strace_df(*files, out_file=None):
                     continue
                 if "+++" in line:
                     continue
-                elts = line.split(" ")
+                elts = line.split()
                 n_elts = len(elts)
                 try:
-                    d = {}
-                    d["run"] = it + 1  # match 1-indexed file names in harness.sh
+                    d = {"run": it + 1}  # match 1-indexed file names in harness.sh
                     for i in range(n_elts):
                         if i == 0:
-                            d["timestamp"] = str(elts[i])
+                            d["timestamp"] = float(elts[i])
                         elif i == 1:
                             d["call"] = elts[i].split("(")[0]
                         elif i == 2:
@@ -49,7 +49,116 @@ def strace_df(*files, out_file=None):
     df = pd.DataFrame(dicts)
     if out_file is not None:
         df.to_csv(out_file, index=False, sep="\t")
+    return df
+
+
+# Each file is a table describing each alloc in the memtest program.
+# Starts with an elapsed_time header line, followed by a table of:
+# slot_index, allocs, frees, total_bytes, current_bytes
+# total_bytes is the total number of bytes allocated in that slot across all calls
+# current_bytes is the number of bytes allocated in that slot at the end of the run
+# To find freed_bytes we can do total_bytes - current_bytes.
+def parse_memtest(*files, out_file=None):
+    dicts = []
+    for it, fp in enumerate(files):
+        with open(fp, "r") as f:
+            elapsed = f.readline().strip().split()[1]  # TODO: unused right now
+            header = f.readline().strip().split()
+            for line in f:
+                line = line.strip()
+                if line == "":
+                    continue
+                elts = line.split()
+                n_elts = len(elts)
+                try:
+                    d = {"run": it + 1}  # match 1-indexed file names in harness.sh
+                    for i in range(n_elts):
+                        d[header[i]] = int(elts[i])
+                except:
+                    print(f"error parsing line: {line}")
+                    continue
+                dicts.append(d)
     
+    df = pd.DataFrame(dicts)
+    if out_file is not None:
+        df.to_csv(out_file, index=False, sep="\t")
+    return df
+
+
+def strace_stats(df, out_file=None):
+    all_runs = []
+    for run in df["run"].unique():
+        stats = {"run": run}
+        run_df = df[df["run"] == run]
+        stats["n_mmap"] = run_df[run_df["call"] == "mmap"].shape[0]
+        stats["n_munmap"] = run_df[run_df["call"] == "munmap"].shape[0]
+        stats["n_total"] = stats["n_mmap"] + stats["n_munmap"]
+        stats["sz_mmap"] = run_df[run_df["call"] == "mmap"]["size"].sum()
+        stats["sz_munmap"] = run_df[run_df["call"] == "munmap"]["size"].sum()
+        stats["sz_net"] = stats["sz_mmap"] - stats["sz_munmap"]
+        stats["secs_mmap"] = run_df[run_df["call"] == "mmap"]["elapsed"].sum()
+        stats["secs_munmap"] = run_df[run_df["call"] == "munmap"]["elapsed"].sum()
+        stats["secs_total"] = stats["secs_mmap"] + stats["secs_munmap"]
+        all_runs.append(stats)
+    
+    df = pd.DataFrame(all_runs)
+    if out_file is not None:
+        df.to_csv(out_file, index=False, sep="\t")
+    print("strace stats:")
+    print(df.to_string(index=False))
+    print()
+    return df
+
+
+def memtest_stats(df, out_file=None):
+    all_runs = []
+    for run in df["run"].unique():
+        stats = {"run": run}
+        run_df = df[df["run"] == run]
+        stats["n_allocs"] = run_df["allocs"].sum()
+        stats["n_frees"] = run_df["frees"].sum()
+        stats["n_total"] = stats["n_allocs"] + stats["n_frees"]
+        stats["sz_allocs"] = run_df["total_bytes"].sum()
+        stats["sz_frees"] = stats["sz_allocs"] - run_df["current_bytes"].sum()
+        stats["sz_leaked"] = stats["sz_allocs"] - stats["sz_frees"]
+        all_runs.append(stats)
+    
+    df = pd.DataFrame(all_runs)
+    if out_file is not None:
+        df.to_csv(out_file, index=False, sep="\t")
+    print("memtest stats:")
+    print(df.to_string(index=False))
+    print()
+    return df
+
+
+def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
+    all_runs = []
+    for run in strace_stats_df["run"].unique():
+        stats = {"run": run}
+        srun_df = strace_stats_df[strace_stats_df["run"] == run]
+        mrun_df = memtest_stats_df[memtest_stats_df["run"] == run]
+        if srun_df.shape[0] == 0 or mrun_df.shape[0] == 0:
+            print("skipping summary for run", run)
+            continue
+        # total number of mmap/munmap calls -- ideal MIND allocator minimizes this
+        stats["n_mcalls"] = srun_df["n_mmap"].sum() + srun_df["n_munmap"].sum()
+        # ratio of memory used by program : memory given by kernel
+        # e.g. allocator could give 1GB for a 1KB allocation to reduce syscalls
+        stats["mmap_util"] = mrun_df["sz_allocs"].sum() / srun_df["sz_mmap"].sum()
+        # ratio of memory unmapped by kernel : memory freed by program
+        # e.g. allocator could never reclaim memory to reduce syscalls
+        stats["munmap_recl"] = srun_df["sz_munmap"].sum() / mrun_df["sz_frees"].sum()
+        # overall memory overhead of allocator: (malloc - free) / (mmap - munmap)
+        stats["mem_overhead"] = mrun_df["sz_leaked"].sum() / srun_df["sz_net"].sum()
+        all_runs.append(stats)
+
+    df = pd.DataFrame(all_runs)
+    if out_file is not None:
+        df.to_csv(out_file, index=False, sep="\t")
+    print("summary stats:")
+    print(df.to_string(index=False))
+    print()
     return df
 
 
@@ -59,7 +168,6 @@ def parse_args():
                         help="strace output files (with flags -e trace=memory -ttt -T)")
     parser.add_argument("-o", nargs=1, required=True, help="output directory")
     parser.add_argument("--plot", action="store_true", help="plot the results")
-    parser.add_argument("--recalc", action="store_true", help="reread input files")
     args = parser.parse_args()
 
     # validation and arg processing
@@ -70,32 +178,21 @@ def parse_args():
     return args
 
 
-def print_summary_stats(df):
-    # average overhead
-    # we find the average number of mmap + munmap calls per run
-    import pdb; pdb.set_trace()
-    overhead = df.groupby("run").count()["call"].mean()
-
-
 def main():
     args = parse_args()
-    strace_files = [f for f in args.f if f.name.startswith("strace_")]
+    
+    # read strace files (strace_*.out) into df
+    sfiles = [f for f in args.f if re.match(r"strace_\d+\.out", f.name)]
+    sdata_df = parse_strace(*sfiles, out_file=args.o / "strace_all.tsv")
 
-    # read strace files into df
-    strace_out = args.o / "strace.tsv"
-    if args.recalc or not (strace_out).exists():
-        df = strace_df(*strace_files, out_file=strace_out)
-    else:
-        try:
-            df = pd.read_csv(strace_out, sep="\t")
-        except:
-            print(f"Error reading {strace_out}, try --recalc")
-            exit(1)
+    # read memtest files (prog_*.out) into df
+    mfiles = [f for f in args.f if re.match(r"prog_\d+\.out", f.name)]
+    mdata_df = parse_memtest(*mfiles, out_file=args.o / "memtest_all.tsv")
     
     # run analyses
-    print_summary_stats(df)
-
-
+    sstats_df = strace_stats(sdata_df, out_file=args.o / "strace_stats.tsv")
+    mstats_df = memtest_stats(mdata_df, out_file=args.o / "memtest_stats.tsv")
+    summary_stats(sstats_df, mstats_df, out_file=args.o / "summary_stats.tsv")
 
 
 if __name__ == "__main__":
