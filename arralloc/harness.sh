@@ -8,7 +8,7 @@ N_ITER=10
 
 # per-iteration params
 N_ALLOCS=$((1<<10))
-MIN_ALLOC=$((1<<10))
+MIN_ALLOC=$((1<<20))
 MAX_ALLOC=$((1<<30))
 
 # setup

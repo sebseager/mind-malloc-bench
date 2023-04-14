@@ -36,7 +36,7 @@ unsigned long long lcg_rand() {
 
 // return a pseudorandom unsigned int in range [min, max]
 unsigned int rand_between(unsigned int min, unsigned int max) {
-  // return min + (rand() % (max - min + 1));
+  // return min + (lcg_rand() % (max - min + 1));
 
   // use getrandom instead for actual randomness, doesn't add too much overhead
   unsigned long long r;
@@ -46,7 +46,9 @@ unsigned int rand_between(unsigned int min, unsigned int max) {
 
 void toggle_slot(int i, int min_len, int max_len) {
   if (slots[i].bytes == NULL) {
-    unsigned int bytes = rand_between(min_len, max_len);
+    // unsigned int bytes = rand_between(min_len, max_len);
+    // pick a number between min_len and max_len based on i
+    unsigned int bytes = min_len + (i % (max_len - min_len + 1));
     unsigned int size = bytes * sizeof(int);
     slots[i].bytes = malloc(size);
     // update statistics
@@ -65,8 +67,9 @@ void toggle_slot(int i, int min_len, int max_len) {
 void run(int n_allocs, int min_len, int max_len) {
   // allocate a bunch of arrays
   for (size_t i = 0; i < n_allocs; i++) {
-    unsigned int j = rand_between(0, N_SLOTS - 1);
-    toggle_slot(j, min_len, max_len);
+    // unsigned int slot = rand_between(0, N_SLOTS - 1);
+    unsigned int slot = i % N_SLOTS;
+    toggle_slot(slot, min_len, max_len);
   }
   // leak memory when done -- ok
 }
