@@ -8,7 +8,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define N_SLOTS (1 << 6)
+#define N_SLOTS (1 << 8)
 
 typedef struct slot {
   unsigned long long n_allocs;
@@ -20,7 +20,7 @@ typedef struct slot {
 
 slot_t slots[N_SLOTS] = {0};
 
-static unsigned long long lgc_next = 0;
+static unsigned long long lgc_next = 1;
 
 // initialize seed for linear congruential generator (LCG)
 void lcg_init(unsigned long long seed) { lgc_next = seed; }
@@ -36,20 +36,20 @@ unsigned long long lcg_rand() {
 
 // return a pseudorandom unsigned int in range [min, max]
 unsigned int rand_between(unsigned int min, unsigned int max) {
-  // return min + (lcg_rand() % (max - min + 1));
-
   // use getrandom instead for actual randomness, doesn't add too much overhead
-  unsigned long long r;
-  getrandom(&r, sizeof(r), 0);
-  return min + (r % (max - min + 1));
+  // unsigned long long r;
+  // getrandom(&r, sizeof(r), 0);
+  // return min + (r % (max - min + 1));
+
+  // as it turns out, rand() and getrandom() may both call malloc()
+  // we want to avoid this, so make our own
+  return min + (lcg_rand() % (max - min + 1));
 }
 
-void toggle_slot(int i, int min_len, int max_len) {
+void toggle_slot(int iter, int min_len, int max_len) {
+  unsigned int i = iter % N_SLOTS; // use iter to choose slot
   if (slots[i].bytes == NULL) {
-    // unsigned int bytes = rand_between(min_len, max_len);
-    // pick a number between min_len and max_len based on i
-    unsigned int bytes = min_len + (i % (max_len - min_len + 1));
-    unsigned int size = bytes * sizeof(int);
+    unsigned int size = rand_between(min_len, max_len);
     slots[i].bytes = malloc(size);
     // update statistics
     slots[i].n_allocs += 1;
@@ -67,9 +67,7 @@ void toggle_slot(int i, int min_len, int max_len) {
 void run(int n_allocs, int min_len, int max_len) {
   // allocate a bunch of arrays
   for (size_t i = 0; i < n_allocs; i++) {
-    // unsigned int slot = rand_between(0, N_SLOTS - 1);
-    unsigned int slot = i % N_SLOTS;
-    toggle_slot(slot, min_len, max_len);
+    toggle_slot(i, min_len, max_len);
   }
   // leak memory when done -- ok
 }
@@ -116,9 +114,21 @@ int main(int argc, char **argv) {
   clock_gettime(CLOCK_MONOTONIC, &end);
 
   // print statistics
-  // to avoid messing with strace, print to stdout and don't alloc anything
+  // warning: printf MAY call malloc, but this is a small constant cost
+  //          as compared to the rest of the test
   print_time(&start, &end);
   print_stats();
 
   return 0;
 }
+
+
+
+// TODO
+// measure mmap time per malloc call
+//   sum elapsed mmap time / number of malloc calls = average mmap time
+//   as low as possible
+// don't mess with munmap as much -- don't care about freeing
+//    also don't care about munmap_recl
+// pthread for multiple threads
+// https://www.tutorialspoint.com/multithreading-in-c
