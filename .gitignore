@@ -1,5 +1,8 @@
 .DS_Store
 *.o
+output/
+stats/
 *.out
 *.tsv
+*.png
 memtest
