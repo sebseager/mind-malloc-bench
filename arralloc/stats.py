@@ -236,30 +236,7 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
 # Fragmentation is the number of bytes mmap'd over number of bytes malloc'd (1 is best
 # and higher is worse). Because the kernel does not necessarily need to reclaim all 
 # memory freed with munmap, we need to do this over time.
-def plot_frag(strace_df, memtest_df, out_path):
-    # # add two calculated columns to memtest_df
-    # # cumul_mmap_bytes = cumulative mmap'd bytes
-    # # cumul_munmap_bytes = cumulative munmap'd bytes
-    # mmap_mask = strace_df["call"] == "mmap"
-    # munmap_mask = strace_df["call"] == "munmap"
-    # strace_df["timestamp_ns"] = strace_df["timestamp"] * NS_PER_SEC
-    # for row in memtest_df.itertuples():
-    #     # compare nanoseconds for both
-    #     end_ns = row.alloc_end_time * NS_PER_SEC
-    #     end_mask = strace_df["timestamp_ns"] <= end_ns
-    #     # get all mmap calls up to alloc_end_time
-    #     cumul_mmap_bytes = strace_df[mmap_mask & end_mask]["size"].sum()
-    #     # get all munmap calls up to alloc_end_time
-    #     cumul_munmap_bytes = strace_df[munmap_mask & end_mask]["size"].sum()
-    #     # add to memtest_df
-    #     memtest_df.loc[row.Index, "cumul_mmap_bytes"] = cumul_mmap_bytes
-    #     memtest_df.loc[row.Index, "cumul_munmap_bytes"] = cumul_munmap_bytes
-    
-    # # print for debugging
-    # print("detailed user-side stats with fragmentation:")
-    # print(memtest_df.to_string(index=False))
-    # print()
-    
+def plot_frag(strace_df, memtest_df, out_path):    
     # plot fragmentation over time (x axis is rounds)
     # for the nth row, frag = (cumul_mmap_bytes - cumul_munmap_bytes) / total_bytes
     plt.figure()
