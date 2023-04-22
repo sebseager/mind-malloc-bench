@@ -4,36 +4,34 @@
 PARENT_DIR=$(dirname $0)
 OUT_DIR=$PARENT_DIR/output
 PROG_NAME=$PARENT_DIR/memtest
-N_ITER=10
+STATS_DIR=$PARENT_DIR/stats
+N_ITER=1
 
 # per-iteration params
-N_ALLOCS=$((1<<10))
+N_ROUNDS=20
 MIN_ALLOC=$((1<<20))
-MAX_ALLOC=$((1<<30))
+MAX_ALLOC=$((1<<24))
 
 # setup
 mkdir -p $OUT_DIR
+make
 
-# run
-gcc -O3 -o $PROG_NAME $PROG_NAME.c
+# clean up old output
+rm -f $OUT_DIR/*.out
+
+# note: rough equivalent on Darwin is `sudo dtruss -b ### -f -t mmap ...`
+#       must be sudo to avoid blocking by SIP
+# flags: -e trace=memory: only trace memory-related syscalls
+#        -f: follow forks
+#        -T: print call durations in seconds
+#        --absolute-timestamps: print full UNIX timestamps
+# can also use -e to filter only mmap syscalls, but looks like overhead 
+# does not change, as strace still has to stop all syscalls
 for i in $(seq 1 $N_ITER); do
-    echo "Running iteration $i..."
-    
-    # note: rough equivalent on Darwin is `sudo dtruss -b ### -f -t mmap ...`
-    #       must be sudo to avoid blocking by SIP
-    # flags: -e trace=memory: only trace memory-related syscalls
-    #        -f: follow forks
-    #        -ttt: print full UNIX timestamps
-    #        -T: print call durations in seconds
-    strace -e trace=memory -f -ttt -T \
-        $PROG_NAME $N_ALLOCS $MIN_ALLOC $MAX_ALLOC \
+    strace -e trace=memory -f -T --absolute-timestamps=format:unix,precision:ns \
+        $PROG_NAME $N_ROUNDS $MIN_ALLOC $MAX_ALLOC \
         2> $OUT_DIR/strace_$i.out 1> $OUT_DIR/prog_$i.out
 done
 
-
-# food for thought
-# https://stackoverflow.com/a/64029488
-
-# next up
-# strace looks like this - a bunch of mmaps, a couple munmaps, and then some brks
-# to resize the space we already got from the mmaps
+# analysis
+python3 $PARENT_DIR/stats.py -f $OUT_DIR/*.out -o $STATS_DIR --plot
