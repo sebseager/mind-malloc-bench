@@ -55,6 +55,8 @@ void run_round(round_t *r, int min_alloc, int max_alloc) {
   set_time(&r->start_alloc);
 
   // allocate a bunch of random sizes
+  r->n_allocs = 0;
+  r->n_bytes = 0;
   for (int i = 0; i < ALLOCS_PER_ROUND; i++) {
     unsigned int len = rand_between(min_alloc, max_alloc) * BYTE_SIZE;
     r->slots[i] = malloc(len);
