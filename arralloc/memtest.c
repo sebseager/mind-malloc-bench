@@ -8,6 +8,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#define BYTE_SIZE 8
 #define ALLOCS_PER_ROUND (1 << 10)
 
 // === RANDOM NUMBER GENERATOR ===
@@ -55,7 +56,7 @@ void run_round(round_t *r, int min_alloc, int max_alloc) {
 
   // allocate a bunch of random sizes
   for (int i = 0; i < ALLOCS_PER_ROUND; i++) {
-    unsigned int len = rand_between(min_alloc, max_alloc) * 8;
+    unsigned int len = rand_between(min_alloc, max_alloc) * BYTE_SIZE;
     r->slots[i] = malloc(len);
     r->n_allocs++;
     r->n_bytes += len;
