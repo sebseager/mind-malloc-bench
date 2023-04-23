@@ -50,7 +50,7 @@ typedef struct round {
   void *slots[ALLOCS_PER_ROUND];
 } round_t;
 
-void run_round(round_t *r, int min_alloc, int max_alloc) {
+void run_round(round_t *r, int min_bytes, int max_bytes) {
   // record start time
   set_time(&r->start_alloc);
 
@@ -58,11 +58,16 @@ void run_round(round_t *r, int min_alloc, int max_alloc) {
   r->n_allocs = 0;
   r->n_bytes = 0;
   for (int i = 0; i < ALLOCS_PER_ROUND; i++) {
-    unsigned int len = rand_between(min_alloc, max_alloc) * BYTE_SIZE;
+    unsigned int len = rand_between(min_bytes, max_bytes) * BYTE_SIZE;
     r->slots[i] = malloc(len);
     r->n_allocs++;
     r->n_bytes += len;
   }
+
+  // // random access
+  // for (int i = 0; i < ALLOCS_PER_ROUND; i++) {
+  //   memset(r->slots[i], 0, min_bytes * BYTE_SIZE);
+  // }
 
   // record end time
   set_time(&r->end_alloc);
@@ -104,26 +109,26 @@ void run(int n_rounds, int min_alloc, int max_alloc) {
 int main(int argc, char **argv) {
   // check that two parameters are passed
   if (argc != 4) {
-    printf("Usage: %s n_allocs min_len max_len\n", argv[0]);
+    printf("Usage: %s n_allocs min_bytes max_bytes\n", argv[0]);
     return 1;
   }
 
   // parse parameters
   unsigned int n_allocs = atoi(argv[1]);
-  unsigned int min_len = atoi(argv[2]);
-  unsigned int max_len = atoi(argv[3]);
+  unsigned int min_bytes = atoi(argv[2]);
+  unsigned int max_bytes = atoi(argv[3]);
 
   // validate parameters
   assert(n_allocs > 0);
-  assert(min_len > 0);
-  assert(max_len >= min_len);
-  assert(max_len < UINT_MAX); // in rand_between we may add 1 to max_len
+  assert(min_bytes > 0);
+  assert(max_bytes >= min_bytes);
+  assert(max_bytes < UINT_MAX); // in rand_between we may add 1 to max_len
 
   // initialization
   lcg_init(time(NULL));
 
   // run the test
-  run(n_allocs, min_len, max_len);
+  run(n_allocs, min_bytes, max_bytes);
 
   return 0;
 }
