@@ -195,35 +195,48 @@ def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
 # of memory in user space, not all of it may be unmapped by kernel.
 def calc_frag_cols(strace_df, memtest_df, out_file=None):
     # convert timestamps
-    memtest_df["alloc_end_time_ns"] = memtest_df["alloc_end_time"] * NS_PER_SEC
-    strace_df["timestamp_ns"] = strace_df["timestamp"] * NS_PER_SEC
+    memtest_df["alloc_start_ns"] = (memtest_df["alloc_start_time"] * NS_PER_SEC).astype(int)
+    memtest_df["alloc_end_ns"] = (memtest_df["alloc_end_time"] * NS_PER_SEC).astype(int)
+    strace_df["timestamp_ns"] = (strace_df["timestamp"] * NS_PER_SEC).astype(int)
+    strace_tmp = strace_df.sort_values(by=["timestamp_ns"])  # should be redundant but
 
-    # filter strace_df
-    strace_tmp = strace_df[strace_df["call"].isin(["mmap", "munmap"])]
-    strace_tmp = strace_tmp.sort_values(by=["timestamp_ns"])  # should be redundant but
-    
     mrow_i = 0
     mmap_cumsum = 0
     munmap_cumsum = 0
+    time_col = "end"
+
+    # time_col needs explaining:
+    # think about iterating through the strace rows in order of timestamp;
+    # as soon as we hit the first end_time, that's cumul_mmap for the first round;
+    # as soon as we hit the second start_time, that's cumul_unmap for the second round
+
     for srow in strace_tmp.itertuples(index=False):
-        if srow.timestamp_ns > memtest_df.iloc[mrow_i].alloc_end_time_ns
-            memtest_df.loc[mrow_i, "cumul_mmap_bytes"] = mmap_cumsum
-            memtest_df.loc[mrow_i, "cumul_munmap_bytes"] = munmap_cumsum
-            mrow_i += 1
-            if mrow_i >= memtest_df.shape[0]:
-                break
+        if srow.timestamp_ns > memtest_df.iloc[mrow_i][f"alloc_{time_col}_ns"]:
+            if time_col == "end":
+                time_col = "start"
+                memtest_df.loc[mrow_i, "cumul_mmap_bytes"] = mmap_cumsum
+            else:
+                time_col = "end"
+                mrow_i += 1
+                if mrow_i >= memtest_df.shape[0]:
+                    break
+                memtest_df.loc[mrow_i, "cumul_munmap_bytes"] = munmap_cumsum
         if srow.call == "mmap":
             mmap_cumsum += srow.size
         elif srow.call == "munmap":
             munmap_cumsum += srow.size
         else:
+            # skip brk, etc.
             continue
 
     # clean up
-    memtest_df.drop(columns=["alloc_end_time_ns"], inplace=True)
+    memtest_df.drop(columns=["alloc_end_ns"], inplace=True)
+    memtest_df["cumul_munmap_bytes"] = memtest_df["cumul_munmap_bytes"].fillna(0)
 
     # calculate fragmentation
-    memtest_df["frag"] = memtest_df["cumul_mmap_bytes"] / memtest_df["total_bytes"]
+    numer = memtest_df["cumul_mmap_bytes"] - memtest_df["cumul_munmap_bytes"]
+    denom = memtest_df["total_bytes"]
+    memtest_df["frag"] = numer / denom
     
     print("detailed user-side stats with fragmentation:")
     print(memtest_df.to_string(index=False))
@@ -232,18 +245,9 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
         memtest_df.to_csv(out_file, index=False, sep="\t")
 
 
-# For each run, plot fragmentation over time.
-# Fragmentation is the number of bytes mmap'd over number of bytes malloc'd (1 is best
-# and higher is worse). Because the kernel does not necessarily need to reclaim all 
-# memory freed with munmap, we need to do this over time.
 def plot_frag(strace_df, memtest_df, out_path):    
-    # plot fragmentation over time (x axis is rounds)
-    # for the nth row, frag = (cumul_mmap_bytes - cumul_munmap_bytes) / total_bytes
     plt.figure()
-    y = memtest_df["cumul_mmap_bytes"] - memtest_df["cumul_munmap_bytes"]
-    y /= memtest_df["total_bytes"]
-    x = memtest_df["alloc_start_time"]
-    plt.scatter(x, y)
+    plt.scatter(memtest_df["alloc_start_time"], memtest_df["frag"])
     plt.xlabel("time")
     plt.ylabel("fragmentation")
     plt.grid(True, which="both")
