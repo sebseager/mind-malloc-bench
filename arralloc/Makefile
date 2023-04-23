@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -Werror -pedantic -O3 -g
+CFLAGS=-Wall -Wextra -Werror -pedantic -g
 SOURCES=$(wildcard *.c)
 EXECUTABLES=$(SOURCES:.c=)
 
