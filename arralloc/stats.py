@@ -207,8 +207,6 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
         time_col = "end"
         srun_df = strace_df[strace_df["run"] == run]
 
-        # import pdb; pdb.set_trace()
-
         # time_col needs explaining:
         # think about iterating through the strace rows in order of timestamp;
         # as soon as we hit the first end_time, that's cumul_mmap for the first round;
