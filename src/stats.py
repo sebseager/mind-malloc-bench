@@ -251,11 +251,13 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
 
 def plot_frag(strace_df, memtest_df, out_path):    
     plt.figure()
+    memtest_df["alloc_start_ns"] = (memtest_df["alloc_start_time"] * NS_PER_SEC).astype(int)
     for run in memtest_df["run"].unique():
         run_df = memtest_df[memtest_df["run"] == run].copy()
-        min_time = run_df["alloc_start_time"].min()
-        run_df["elapsed_start_time"] = run_df["alloc_start_time"] - min_time
+        min_time = run_df["alloc_start_ns"].min()
+        run_df["elapsed_start_time"] = run_df["alloc_start_ns"] - min_time
         plt.plot(run_df["elapsed_start_time"], run_df["frag"], label=f"run {run}")
+    memtest_df.drop(columns=["alloc_start_ns"], inplace=True)
     plt.xlabel("elapsed run time (s)")
     plt.ylabel("fragmentation (mmap'd bytes / malloc'd bytes)")
     plt.grid(True, which="both")
@@ -265,7 +267,33 @@ def plot_frag(strace_df, memtest_df, out_path):
     plt.close()
 
 
-
+def plot_net_mmap(strace_df, out_path):
+    plt.figure()
+    strace_df["timestamp_ns"] = (strace_df["timestamp"] * NS_PER_SEC).astype(int)
+    for run in strace_df["run"].unique()[:2]:
+        run_df = strace_df[strace_df["run"] == run].copy()
+        min_time = run_df["timestamp_ns"].min()
+        run_df["elapsed_ns"] = run_df["timestamp_ns"] - min_time
+        
+        y = [0]  # net mmap
+        x = [0]  # elapsed time
+        for row in run_df.itertuples(index=False):
+            if row.call == "mmap":
+                y.append(y[-1] + row.size)
+                x.append(row.elapsed_ns)
+            elif row.call == "munmap":
+                y.append(y[-1] - row.size)
+                x.append(row.elapsed_ns)
+            else:
+                continue
+        plt.plot(x, y)
+    
+    plt.xlabel("elapsed run time (s)")
+    plt.ylabel("net mmap'd bytes")
+    plt.grid(True, which="both")
+    plt.title("Net mmap'd bytes over time")
+    plt.savefig(out_path)
+    plt.close()
 
 
 def parse_args():
@@ -307,7 +335,8 @@ def main():
 
     # plots
     if args.plot:
-        plot_frag(sdata_df, mdata_df, args.o / "strace_plot.png")
+        plot_frag(sdata_df, mdata_df, args.o / "strace_frag.png")
+        plot_net_mmap(sdata_df, args.o / "strace_netmmap.png")
 
 
 if __name__ == "__main__":
