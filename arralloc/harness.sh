@@ -10,8 +10,8 @@ ALLOCATORS="ptmalloc jemalloc hoard"
 
 # per-iteration params
 N_ROUNDS=16
-MIN_ALLOC=$((1<<12))
-MAX_ALLOC=$((1<<15))
+MIN_ALLOC=$((1<<18))  # to avoid brk, want MIN_ALLOC > M_MMAP_THRESHOLD (default 128KB)
+MAX_ALLOC=$((1<<24))
 
 # note: rough equivalent of strace on Darwin is `sudo dtruss -b ### -f -t mmap ...`
 #       must be sudo to avoid blocking by SIP
@@ -29,6 +29,8 @@ for a in $ALLOCATORS; do
     ALLOC_OUT_DIR=$OUT_DIR/$a
     rm -rf $ALLOC_OUT_DIR
     mkdir -p $ALLOC_OUT_DIR
+
+    echo -e "----- $a -----\n"
 
     # run
     for i in $(seq 1 $N_ITER); do

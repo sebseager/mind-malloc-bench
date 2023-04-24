@@ -20,6 +20,11 @@ cd ..
 #     sudo yum -y install gperftools-devel
 # fi
 
+# # tcmalloc manual approach 
+# git clone https://github.com/google/tcmalloc.git tcmalloc
+# cd tcmalloc
+# bazel test //tcmalloc/...  # doesn't work
+
 # hoard
 git clone https://github.com/emeryberger/Hoard hoard
 cd hoard/src

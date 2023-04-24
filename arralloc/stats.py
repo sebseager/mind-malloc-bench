@@ -201,39 +201,42 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
     strace_tmp = strace_df.sort_values(by=["timestamp_ns"])  # should be redundant but
 
     mrow_i = 0
-    mmap_cumsum = 0
-    munmap_cumsum = 0
-    time_col = "end"
+    for run in memtest_df["run"].unique():
+        mmap_cumsum = 0
+        munmap_cumsum = 0
+        time_col = "end"
+        srun_df = strace_df[strace_df["run"] == run]
 
-    # time_col needs explaining:
-    # think about iterating through the strace rows in order of timestamp;
-    # as soon as we hit the first end_time, that's cumul_mmap for the first round;
-    # as soon as we hit the second start_time, that's cumul_unmap for the second round
+        # import pdb; pdb.set_trace()
 
-    for srow in strace_tmp.itertuples(index=False):
-        if srow.timestamp_ns > memtest_df.iloc[mrow_i][f"alloc_{time_col}_ns"]:
-            if time_col == "end":
-                time_col = "start"
-                memtest_df.loc[mrow_i, "cumul_mmap_bytes"] = mmap_cumsum
+        # time_col needs explaining:
+        # think about iterating through the strace rows in order of timestamp;
+        # as soon as we hit the first end_time, that's cumul_mmap for the first round;
+        # as soon as we hit the second start_time, that's cumul_unmap for second round
+
+        for srow in srun_df.itertuples(index=False):
+            if srow.timestamp_ns > memtest_df.loc[mrow_i, f"alloc_{time_col}_ns"]:
+                if time_col == "end":
+                    memtest_df.loc[mrow_i, "cumul_mmap_bytes"] = mmap_cumsum
+                    time_col = "start"
+                else:
+                    mrow_i += 1
+                    if mrow_i >= memtest_df.shape[0]:
+                        break
+                    if memtest_df.loc[mrow_i, "run"] != run:
+                        break
+                    memtest_df.loc[mrow_i, "cumul_munmap_bytes"] = munmap_cumsum
+                    time_col = "end"
+            if srow.call == "mmap":
+                mmap_cumsum += srow.size
+            elif srow.call == "munmap":
+                munmap_cumsum += srow.size
             else:
-                time_col = "end"
-                mrow_i += 1
-                if mrow_i >= memtest_df.shape[0]:
-                    break
-                if memtest_df.iloc[mrow_i]["round"] == 0:
-                    mmap_cumsum = 0
-                    munmap_cumsum = 0
-                memtest_df.loc[mrow_i, "cumul_munmap_bytes"] = munmap_cumsum
-        if srow.call == "mmap":
-            mmap_cumsum += srow.size
-        elif srow.call == "munmap":
-            munmap_cumsum += srow.size
-        else:
-            # skip brk, etc.
-            continue
+                # skip brk, etc.
+                continue
 
     # clean up
-    memtest_df.drop(columns=["alloc_end_ns"], inplace=True)
+    memtest_df.drop(columns=["alloc_start_ns", "alloc_end_ns"], inplace=True)
     memtest_df["cumul_munmap_bytes"] = memtest_df["cumul_munmap_bytes"].fillna(0)
 
     # calculate fragmentation
