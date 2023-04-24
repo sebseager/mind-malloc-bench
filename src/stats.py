@@ -256,10 +256,11 @@ def plot_frag(strace_df, memtest_df, out_path):
         min_time = run_df["alloc_start_time"].min()
         run_df["elapsed_start_time"] = run_df["alloc_start_time"] - min_time
         plt.plot(run_df["elapsed_start_time"], run_df["frag"], label=f"run {run}")
-    plt.xlabel("time")
-    plt.ylabel("fragmentation")
+    plt.xlabel("elapsed run time (s)")
+    plt.ylabel("fragmentation (mmap'd bytes / malloc'd bytes)")
     plt.grid(True, which="both")
     plt.title("Fragmentation over time")
+    plt.ylim(0, 4)
     plt.savefig(out_path)
     plt.close()
 
