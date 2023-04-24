@@ -50,8 +50,13 @@ def parse_strace(*files, out_file=None):
                     continue
                 dicts.append(d)
     
-    df = pd.DataFrame(dicts)
-    df = df.sort_values(by=["run", "timestamp"])
+    try:
+        df = pd.DataFrame(dicts)
+        df = df.sort_values(by=["run", "timestamp"])
+    except Exception:
+        print("error: could not parse strace files")
+        print(df)
+        exit(1)
     if out_file is not None:
         df.to_csv(out_file, index=False, sep="\t")
     return df
@@ -90,8 +95,13 @@ def parse_memtest(*files, out_file=None):
                     continue
                 dicts.append(d)
     
-    df = pd.DataFrame(dicts)
-    df = df.sort_values(by=["run", "round"])
+    try:
+        df = pd.DataFrame(dicts)
+        df = df.sort_values(by=["run", "round"])
+    except Exception:
+        print("error: could not parse program output files")
+        print(df)
+        exit(1)
     if out_file is not None:
         df.to_csv(out_file, index=False, sep="\t")
     return df
@@ -129,9 +139,8 @@ def memtest_stats(df, out_file=None):
         run_df = df[df["run"] == run]
         stats["n_allocs"] = run_df["allocs"].sum()
         stats["sz_allocs"] = run_df["total_bytes"].sum()
-        ns_start = run_df["alloc_start_time"] * NS_PER_SEC
-        ns_end = run_df["alloc_end_time"] * NS_PER_SEC
-        stats["alloc_secs"] = ((ns_end - ns_start) / NS_PER_SEC).sum()
+        delta_ns = run_df["alloc_end_ns"] - run_df["alloc_start_ns"]
+        stats["alloc_secs"] = (delta_ns / NS_PER_SEC).sum()
         all_runs.append(stats)
     
     df = pd.DataFrame(all_runs)
@@ -195,8 +204,6 @@ def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
 # of memory in user space, not all of it may be unmapped by kernel.
 def calc_frag_cols(strace_df, memtest_df, out_file=None):
     # convert timestamps
-    memtest_df["alloc_start_ns"] = (memtest_df["alloc_start_time"] * NS_PER_SEC).astype(int)
-    memtest_df["alloc_end_ns"] = (memtest_df["alloc_end_time"] * NS_PER_SEC).astype(int)
     memtest_df["kernel_secs"] = 0
     strace_df["timestamp_ns"] = (strace_df["timestamp"] * NS_PER_SEC).astype(int)
     strace_tmp = strace_df.sort_values(by=["timestamp_ns"])  # should be redundant but
@@ -237,7 +244,6 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
                 continue
 
     # clean up
-    memtest_df.drop(columns=["alloc_start_ns", "alloc_end_ns"], inplace=True)
     memtest_df["cumul_munmap_bytes"] = memtest_df["cumul_munmap_bytes"].fillna(0)
 
     # calculate fragmentation
@@ -256,13 +262,11 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
 # Fragmentation is defined as (mmap'd bytes - munmap'd bytes) / malloc'd bytes.
 def plot_frag(strace_df, memtest_df, out_path):    
     plt.figure()
-    memtest_df["alloc_start_ns"] = (memtest_df["alloc_start_time"] * NS_PER_SEC).astype(int)
     for run in memtest_df["run"].unique():
         run_df = memtest_df[memtest_df["run"] == run].copy()
         min_time = run_df["alloc_start_ns"].min()
-        run_df["elapsed_start_time"] = run_df["alloc_start_ns"] - min_time
-        plt.plot(run_df["elapsed_start_time"], run_df["frag"], label=f"run {run}")
-    memtest_df.drop(columns=["alloc_start_ns"], inplace=True)
+        run_df["elapsed_start_ns"] = run_df["alloc_start_ns"] - min_time
+        plt.plot(run_df["elapsed_start_ns"], run_df["frag"], label=f"run {run}")
     plt.xlabel("elapsed run time (s)")
     plt.ylabel("fragmentation (mmap'd bytes / malloc'd bytes)")
     plt.grid(True, which="both")

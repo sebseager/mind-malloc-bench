@@ -1,14 +1,13 @@
 #include <assert.h>
-#include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/random.h>
 #include <time.h>
-#include <unistd.h>
 
 #define BYTE_SIZE 8
+#define NS_PER_SEC 1000000000ULL
 #define ALLOCS_PER_ROUND (1 << 10)
 
 // === RANDOM NUMBER GENERATOR ===
@@ -43,14 +42,16 @@ void set_time(struct timespec *ts) { clock_gettime(CLOCK_REALTIME, ts); }
 
 typedef struct round {
   unsigned int round_num;
+  void *slots[ALLOCS_PER_ROUND];
+
+  // statistics
   unsigned long long n_allocs;
   unsigned long long n_bytes;
   struct timespec start_alloc;
   struct timespec end_alloc;
-  void *slots[ALLOCS_PER_ROUND];
 } round_t;
 
-void run_round(round_t *r, int min_bytes, int max_bytes) {
+void run_round(round_t *r, unsigned int min_bytes, unsigned int max_bytes) {
   // record start time
   set_time(&r->start_alloc);
 
@@ -81,7 +82,12 @@ void run_round(round_t *r, int min_bytes, int max_bytes) {
 // === STATISTICS ===
 
 void print_stats_header() {
-  printf("round\tallocs\ttotal_bytes\talloc_start_time\talloc_end_time\n");
+  printf("round\t");
+  printf("thread\t");
+  printf("allocs\t");
+  printf("total_bytes\t");
+  printf("alloc_start_ns\t");
+  printf("alloc_end_ns\n");
 }
 
 void print_round_stats(round_t *r) {
@@ -89,46 +95,106 @@ void print_round_stats(round_t *r) {
   printf("%llu\t", r->n_allocs);
   printf("%llu\t", r->n_bytes);
 
-  // limit nanosecond portion to 6 digits to match strace
-  printf("%ld.%09ld\t", r->start_alloc.tv_sec, r->start_alloc.tv_nsec);
-  printf("%ld.%09ld\n", r->end_alloc.tv_sec, r->end_alloc.tv_nsec);
+  // convert timespec to nanoseconds
+  unsigned long long start_ns =
+      r->start_alloc.tv_sec * NS_PER_SEC + r->start_alloc.tv_nsec;
+  unsigned long long end_ns =
+      r->end_alloc.tv_sec * NS_PER_SEC + r->end_alloc.tv_nsec;
+  printf("%llu\t", start_ns);
+  printf("%llu\n", end_ns);
 }
 
 // === MAIN ===
 
-void run(int n_rounds, int min_alloc, int max_alloc) {
+typedef struct thread {
+  pthread_t pthread;
+  round_t *rounds;
+  int n_rounds;
+  int n_threads;
+  int thread_id;
+  int min_bytes;
+  int max_bytes;
+} thread_t;
+
+void *run_thread(void *thread) {
+  thread_t *t = (thread_t *)thread;
+  int rounds_per_thread = t->n_rounds / t->n_threads;
+  int extra_rounds = t->n_rounds % t->n_threads;
+  if (t->thread_id < extra_rounds) {
+    rounds_per_thread++;
+  }
+
+  // perform work on rounds assigned to this thread
+  // assigns rounds to threads in a round-robin fashion
+  for (int i = 0; i < rounds_per_thread; i++) {
+    int round_num = t->thread_id + i * t->n_threads;
+    run_round(&t->rounds[round_num], t->min_bytes, t->max_bytes);
+  }
+
+  return NULL;
+}
+
+void start(int n_rounds, int min_bytes, int max_bytes, int n_threads) {
   round_t rounds[n_rounds];
-  print_stats_header();
   for (int i = 0; i < n_rounds; i++) {
     rounds[i].round_num = i;
-    run_round(&rounds[i], min_alloc, max_alloc);
+  }
+
+  thread_t threads[n_threads];
+  for (int i = 0; i < n_threads; i++) {
+    threads[i].rounds = rounds;
+    threads[i].n_rounds = n_rounds;
+    threads[i].n_threads = n_threads;
+    threads[i].thread_id = i;
+    threads[i].min_bytes = min_bytes;
+    threads[i].max_bytes = max_bytes;
+  }
+
+  // start all threads
+  for (int i = 0; i < n_threads; i++) {
+    thread_t t = threads[i];
+    pthread_create(&t.pthread, NULL, run_thread, &t);
+  }
+
+  // wait for all threads to finish up
+  for (int i = 0; i < n_threads; i++) {
+    pthread_join(threads[i].pthread, NULL);
+  }
+
+  // print stats
+  print_stats_header();
+  for (int i = 0; i < n_rounds; i++) {
     print_round_stats(&rounds[i]);
   }
 }
 
 int main(int argc, char **argv) {
   // check that two parameters are passed
-  if (argc < 4) {
-    printf("Usage: %s n_allocs min_bytes max_bytes\n", argv[0]);
+  if (argc < 5) {
+    printf("Usage: %s n_rounds min_bytes max_bytes n_threads\n", argv[0]);
     return 1;
   }
 
   // parse parameters
-  unsigned int n_allocs = atoi(argv[1]);
+  unsigned int n_rounds = atoi(argv[1]);
   unsigned int min_bytes = atoi(argv[2]);
   unsigned int max_bytes = atoi(argv[3]);
+  unsigned int n_threads = atoi(argv[4]);
 
   // validate parameters
-  assert(n_allocs > 0);
+  assert(n_rounds > 0);
   assert(min_bytes > 0);
   assert(max_bytes >= min_bytes);
   assert(max_bytes < UINT_MAX); // in rand_between we may add 1 to max_len
+  assert(n_threads > 0);
+  assert(n_threads <= n_rounds);
+  assert(n_rounds % n_threads == 0); // for simplicity
 
   // initialization
   lcg_init(time(NULL));
 
   // run the test
-  run(n_allocs, min_bytes, max_bytes);
+  start(n_rounds, min_bytes, max_bytes, n_threads);
 
   return 0;
 }
