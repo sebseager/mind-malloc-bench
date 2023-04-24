@@ -220,6 +220,9 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
                 mrow_i += 1
                 if mrow_i >= memtest_df.shape[0]:
                     break
+                if memtest_df.iloc[mrow_i]["round"] == 0:
+                    mmap_cumsum = 0
+                    munmap_cumsum = 0
                 memtest_df.loc[mrow_i, "cumul_munmap_bytes"] = munmap_cumsum
         if srow.call == "mmap":
             mmap_cumsum += srow.size
@@ -247,13 +250,20 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
 
 def plot_frag(strace_df, memtest_df, out_path):    
     plt.figure()
-    plt.scatter(memtest_df["alloc_start_time"], memtest_df["frag"])
+    for run in memtest_df["run"].unique():
+        run_df = memtest_df[memtest_df["run"] == run].copy()
+        min_time = run_df["alloc_start_time"].min()
+        run_df["elapsed_start_time"] = run_df["alloc_start_time"] - min_time
+        plt.plot(run_df["elapsed_start_time"], run_df["frag"], label=f"run {run}")
     plt.xlabel("time")
     plt.ylabel("fragmentation")
     plt.grid(True, which="both")
     plt.title("Fragmentation over time")
     plt.savefig(out_path)
     plt.close()
+
+
+
 
 
 def parse_args():

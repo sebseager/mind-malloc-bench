@@ -1,12 +1,22 @@
 CC=gcc
 CFLAGS=-Wall -Wextra -Werror -pedantic -g
-SOURCES=$(wildcard *.c)
-EXECUTABLES=$(SOURCES:.c=)
+NOBUILTIN=-fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
+SOURCE=memtest.c
+EXECUTABLE=memtest
+SCRIPT_DIR=$(shell pwd)
+INSTALL_DIR=$(SCRIPT_DIR)/__tmp_alloc_install/
 
-all: $(EXECUTABLES)
+ptmalloc:
+	$(CC) $(CFLAGS) -o $(EXECUTABLE) $(SOURCE)
 
-%: %.c
-	$(CC) $(CFLAGS) $< -o $@
+jemalloc:
+	$(CC) $(CFLAGS) -o $(EXECUTABLE) $(SOURCE) -L$(INSTALL_DIR)/jemalloc/lib/ -ljemalloc $(NOBUILTIN)
+
+hoard:
+	$(CC) $(CFLAGS) -o $(EXECUTABLE) $(SOURCE) -L$(INSTALL_DIR)/hoard/src/ -Wl,-R$(INSTALL_DIR)/hoard/src/ -lhoard $(NOBUILTIN)
+
+tcmalloc:
+	$(CC) $(CFLAGS) -o $(EXECUTABLE) $(SOURCE) -ltcmalloc_minimal $(NOBUILTIN)
 
 clean:
-	rm -f $(EXECUTABLES)
+	rm -f $(EXECUTABLE)
