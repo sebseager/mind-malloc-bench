@@ -158,9 +158,9 @@ def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
         # absolute number, lower is better
         stats["n_mmap"] = int(srun_row["n_mmap"])
 
-        # mmap calls : malloc calls
-        # ~1 is worst, lower is better
-        stats["mmap_eff"] = srun_row["n_mmap"] / mrun_row["n_allocs"]
+        # malloc calls: mmap calls
+        # ~1 is worst, higher is better
+        stats["mmap_eff"] =  mrun_row["n_allocs"] / srun_row["n_mmap"]
 
         # size mmap'd : size mallocd'd
         # gives fragmentation -- sense of how much memory is wasted
@@ -197,6 +197,7 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
     # convert timestamps
     memtest_df["alloc_start_ns"] = (memtest_df["alloc_start_time"] * NS_PER_SEC).astype(int)
     memtest_df["alloc_end_ns"] = (memtest_df["alloc_end_time"] * NS_PER_SEC).astype(int)
+    memtest_df["kernel_secs"] = 0
     strace_df["timestamp_ns"] = (strace_df["timestamp"] * NS_PER_SEC).astype(int)
     strace_tmp = strace_df.sort_values(by=["timestamp_ns"])  # should be redundant but
 
@@ -227,8 +228,10 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
                     time_col = "end"
             if srow.call == "mmap":
                 mmap_cumsum += srow.size
+                memtest_df.loc[mrow_i, "kernel_secs"] += srow.elapsed
             elif srow.call == "munmap":
                 munmap_cumsum += srow.size
+                memtest_df.loc[mrow_i, "kernel_secs"] += srow.elapsed
             else:
                 # skip brk, etc.
                 continue
@@ -249,6 +252,8 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
         memtest_df.to_csv(out_file, index=False, sep="\t")
 
 
+# Plot fragmentation over time for each run.
+# Fragmentation is defined as (mmap'd bytes - munmap'd bytes) / malloc'd bytes.
 def plot_frag(strace_df, memtest_df, out_path):    
     plt.figure()
     memtest_df["alloc_start_ns"] = (memtest_df["alloc_start_time"] * NS_PER_SEC).astype(int)
@@ -267,6 +272,9 @@ def plot_frag(strace_df, memtest_df, out_path):
     plt.close()
 
 
+# Plot the cumulative number of bytes mmap'd and munmap'd over time.
+# This is distinct from fragmentation, which is the ratio of mmap'd to malloc'd bytes.
+# This just gives a sense of the kernel-side activity of the allocator.
 def plot_net_mmap(strace_df, out_path):
     plt.figure()
     strace_df["timestamp_ns"] = (strace_df["timestamp"] * NS_PER_SEC).astype(int)
@@ -296,6 +304,21 @@ def plot_net_mmap(strace_df, out_path):
     plt.close()
 
 
+# Plot seconds spent in kernel per million bytes requested by malloc.
+# This is a measure of the kernel-side activity of the allocator.
+def plot_kernel_secs(memtest_df, out_path):
+    plt.figure()
+    y = memtest_df["kernel_secs"]
+    x = memtest_df["total_bytes"] / 1e6
+    plt.scatter(x, y)
+    plt.xlabel("million bytes malloc'd")
+    plt.ylabel("time spent in mmap and munmap (s)")
+    plt.grid(True, which="both")
+    plt.title("Kernel time per million bytes requested")
+    plt.savefig(out_path)
+    plt.close()
+
+
 def parse_args():
     parser = ArgumentParser(description="Test the performance of array allocation")
     parser.add_argument("-f", nargs="+", required=True,
@@ -321,22 +344,23 @@ def main():
     r = re.compile(r"strace.*\.out")
 
     sfiles = [f for f in args.f if re.match(r"strace.*\.out", f.name)]
-    sdata_df = parse_strace(*sfiles, out_file=args.o / "strace_all.tsv")
+    sdata_df = parse_strace(*sfiles, out_file=args.o / "strace_detail.tsv")
 
     # read memtest files (prog_*.out) into df
     mfiles = [f for f in args.f if re.match(r"prog.*\.out", f.name)]
-    mdata_df = parse_memtest(*mfiles, out_file=args.o / "memtest_all.tsv")
+    mdata_df = parse_memtest(*mfiles, out_file=args.o / "memtest_detail.tsv")
     
     # run analyses
-    sstats_df = strace_stats(sdata_df, out_file=args.o / "strace_stats.tsv")
-    mstats_df = memtest_stats(mdata_df, out_file=args.o / "memtest_stats.tsv")
-    calc_frag_cols(sdata_df, mdata_df, out_file=args.o / "memtest_all.tsv")  # in-place
-    summary_stats(sstats_df, mstats_df, out_file=args.o / "summary_stats.tsv")
+    sstats_df = strace_stats(sdata_df, out_file=args.o / "strace_summary.tsv")
+    mstats_df = memtest_stats(mdata_df, out_file=args.o / "memtest_summary.tsv")
+    calc_frag_cols(sdata_df, mdata_df, out_file=args.o / "memtest_detail.tsv") # inplace
+    summ_df = summary_stats(sstats_df, mstats_df, out_file=args.o / "summary.tsv")
 
     # plots
     if args.plot:
-        plot_frag(sdata_df, mdata_df, args.o / "strace_frag.png")
-        plot_net_mmap(sdata_df, args.o / "strace_netmmap.png")
+        plot_frag(sdata_df, mdata_df, args.o / "frag.png")
+        plot_net_mmap(sdata_df, args.o / "net_mmap.png")
+        plot_kernel_secs(mdata_df, args.o / "kernel_secs.png")
 
 
 if __name__ == "__main__":

@@ -108,7 +108,7 @@ void run(int n_rounds, int min_alloc, int max_alloc) {
 
 int main(int argc, char **argv) {
   // check that two parameters are passed
-  if (argc != 4) {
+  if (argc < 4) {
     printf("Usage: %s n_allocs min_bytes max_bytes\n", argv[0]);
     return 1;
   }
