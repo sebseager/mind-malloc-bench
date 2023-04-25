@@ -152,8 +152,7 @@ void start(int n_rounds, int min_bytes, int max_bytes, int n_threads) {
 
   // start all threads
   for (int i = 0; i < n_threads; i++) {
-    thread_t t = threads[i];
-    pthread_create(&t.pthread, NULL, run_thread, &t);
+    pthread_create(&threads[i].pthread, NULL, run_thread, &threads[i]);
   }
 
   // wait for all threads to finish up

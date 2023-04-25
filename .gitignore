@@ -7,3 +7,5 @@ stats/
 *.png
 memtest
 __tmp_alloc_install/
+.nfs*
+vgcore.*

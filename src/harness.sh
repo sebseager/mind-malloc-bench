@@ -1,12 +1,15 @@
 #!/bin/bash
 
-# config params
+# test directories
 PARENT_DIR=$(dirname $0)
 OUT_DIR=$PARENT_DIR/output
 PROG_NAME=$PARENT_DIR/memtest
 STATS_DIR=$PARENT_DIR/stats
-N_ITER=4
+
+# configuration
 ALLOCATORS="ptmalloc jemalloc hoard"
+N_ITER=4
+N_THREADS=4  # N_ROUNDS % N_THREADS must be 0
 
 # per-iteration params
 N_ROUNDS=16
@@ -35,7 +38,7 @@ for a in $ALLOCATORS; do
     # run
     for i in $(seq 1 $N_ITER); do
         strace -e trace=memory -f -T --absolute-timestamps=format:unix,precision:ns \
-            $PROG_NAME $N_ROUNDS $MIN_ALLOC $MAX_ALLOC \
+            $PROG_NAME $N_ROUNDS $MIN_ALLOC $MAX_ALLOC $N_THREADS \
             2> $ALLOC_OUT_DIR/strace_$i.out 1> $ALLOC_OUT_DIR/prog_$i.out
     done
 
