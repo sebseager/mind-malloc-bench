@@ -42,6 +42,7 @@ void set_time(struct timespec *ts) { clock_gettime(CLOCK_REALTIME, ts); }
 
 typedef struct round {
   unsigned int round_num;
+  int thread_id;
   void *slots[ALLOCS_PER_ROUND];
 
   // statistics
@@ -92,6 +93,7 @@ void print_stats_header() {
 
 void print_round_stats(round_t *r) {
   printf("%d\t", r->round_num);
+  printf("%d\t", r->thread_id);
   printf("%llu\t", r->n_allocs);
   printf("%llu\t", r->n_bytes);
 
@@ -127,8 +129,9 @@ void *run_thread(void *thread) {
   // perform work on rounds assigned to this thread
   // assigns rounds to threads in a round-robin fashion
   for (int i = 0; i < rounds_per_thread; i++) {
-    int round_num = t->thread_id + i * t->n_threads;
-    run_round(&t->rounds[round_num], t->min_bytes, t->max_bytes);
+    int num = t->thread_id + i * t->n_threads;
+    t->rounds[num].thread_id = t->thread_id;
+    run_round(&t->rounds[num], t->min_bytes, t->max_bytes);
   }
 
   return NULL;

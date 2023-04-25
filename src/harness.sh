@@ -40,6 +40,7 @@ for a in $ALLOCATORS; do
         strace -e trace=memory -f -T --absolute-timestamps=format:unix,precision:ns \
             $PROG_NAME $N_ROUNDS $MIN_ALLOC $MAX_ALLOC $N_THREADS \
             2> $ALLOC_OUT_DIR/strace_$i.out 1> $ALLOC_OUT_DIR/prog_$i.out
+        sed -zi 's/strace: Process [[:digit:]]* attached\n//g' $ALLOC_OUT_DIR/strace_$i.out
     done
 
     # analysis

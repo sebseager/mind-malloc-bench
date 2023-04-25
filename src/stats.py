@@ -25,26 +25,36 @@ def parse_strace(*files, out_file=None):
                 line = line.strip()
                 if line == "":
                     continue
-                if "+++" in line:
+                if "+++" in line:  # end of file
+                    continue
+                if "---" in line:  # syscall interrupted by signal
                     continue
                 elts = line.split()
                 n_elts = len(elts)
                 try:
                     d = {"run": it}
-                    for i in range(n_elts):
-                        if i == 0:
-                            d["timestamp"] = Decimal(elts[i])
-                        elif i == 1:
-                            d["call"] = elts[i].split("(")[0]
-                        elif i == 2:
-                            if d["call"] == "mmap":
-                                d["size"] = int(elts[i].split(",")[0])
-                            elif d["call"] == "munmap":
-                                d["size"] = int(elts[i].split(")")[0])
-                        if elts[i] == "=":
-                            d["return"] = elts[i + 1]  # as hex string
-                            # drop < and > surrounding elapsed time
-                            d["elapsed"] = Decimal(elts[i + 2][1:-1])
+                    # preprocessing
+                    if "pid" in elts[0]:
+                        elts = elts[2:]
+                        n_elts -= 2
+                    if "<..." in elts[1]:  # call resumed from context switch
+                        d["timestamp"] = Decimal(elts[0])
+                        d["call"] = elts[2]
+                        d["return"] = elts[5]
+                        d["elapsed"] = Decimal(elts[6][1:-1])
+                    elif "...>" in elts[-1]:  # call unfinished due to context switch
+                        continue
+                    else:  # call completed in its entirety
+                        d["timestamp"] = Decimal(elts[0])
+                        d["call"] = elts[1].split("(")[0]
+                        d["return"] = elts[-2]
+                        d["elapsed"] = Decimal(elts[-1][1:-1])
+                        if d["call"] == "mmap":
+                            d["size"] = int(elts[2].split(",")[0])
+                        elif d["call"] == "munmap":
+                            d["size"] = int(elts[2].split(")")[0])
+                        else:
+                            print("SKIPPINNG CALL TYPE", d["call"])
                 except:
                     print(f"error parsing line: {line}")
                     continue
