@@ -190,7 +190,6 @@ int main(int argc, char **argv) {
   assert(max_bytes < UINT_MAX); // in rand_between we may add 1 to max_len
   assert(n_threads > 0);
   assert(n_threads <= n_rounds);
-  assert(n_rounds % n_threads == 0); // for simplicity
 
   // initialization
   lcg_init(time(NULL));
