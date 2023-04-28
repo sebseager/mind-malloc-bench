@@ -1,9 +1,4 @@
 .DS_Store
 *.o
-output/
-stats/
-*.out
-*.tsv
-*.png
 memtest
 __tmp_alloc_install/
