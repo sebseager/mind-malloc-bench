@@ -41,6 +41,8 @@ def parse_strace(*files, out_file=None):
                                 d["size"] = int(elts[i].split(",")[0])
                             elif d["call"] == "munmap":
                                 d["size"] = int(elts[i].split(")")[0])
+                            elif d["call"] == "madvise" and elts[3] == "DONTNEED":
+                                d["size"] = int(elts[i].split(",")[0])
                         if elts[i] == "=":
                             d["return"] = elts[i + 1]  # as hex string
                             # drop < and > surrounding elapsed time
@@ -232,6 +234,9 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
             elif srow.call == "munmap":
                 munmap_cumsum += srow.size
                 memtest_df.loc[mrow_i, "kernel_secs"] += srow.elapsed
+            elif srow.call == "madvise":
+                munmap_cumsum += srow.size
+                memtest_df.loc[mrow_i, "kernel_secs"] += srow.elapsed
             else:
                 # skip brk, etc.
                 continue
@@ -262,6 +267,13 @@ def plot_frag(strace_df, memtest_df, out_path):
         min_time = run_df["alloc_start_ns"].min()
         run_df["elapsed_start_time"] = run_df["alloc_start_ns"] - min_time
         plt.plot(run_df["elapsed_start_time"], run_df["frag"], label=f"run {run}")
+
+        tmp_out = f"frag.csv"
+        if run == 1:
+            # output plot x y to tsv
+            run_df[["elapsed_start_time", "frag"]].to_csv(tmp_out, index=False, sep="\t")
+
+            
     memtest_df.drop(columns=["alloc_start_ns"], inplace=True)
     plt.xlabel("elapsed run time (s)")
     plt.ylabel("fragmentation (mmap'd bytes / malloc'd bytes)")
@@ -278,23 +290,30 @@ def plot_frag(strace_df, memtest_df, out_path):
 def plot_net_mmap(strace_df, out_path):
     plt.figure()
     strace_df["timestamp_ns"] = (strace_df["timestamp"] * NS_PER_SEC).astype(int)
+    strace_df.sort_values(by=["timestamp_ns"], inplace=True)
     for run in strace_df["run"].unique()[:2]:
         run_df = strace_df[strace_df["run"] == run].copy()
-        min_time = run_df["timestamp_ns"].min()
-        run_df["elapsed_ns"] = run_df["timestamp_ns"] - min_time
-        
+        min_ns = run_df["timestamp_ns"].min()
         y = [0]  # net mmap
-        x = [0]  # elapsed time
+        x = [0]  # time
         for row in run_df.itertuples(index=False):
             if row.call == "mmap":
                 y.append(y[-1] + row.size)
-                x.append(row.elapsed_ns)
+                x.append(row.timestamp_ns - min_ns)
             elif row.call == "munmap":
                 y.append(y[-1] - row.size)
-                x.append(row.elapsed_ns)
+                x.append(row.timestamp_ns - min_ns)
+            # elif row.call == "madvise":
+            #     y.append(y[-1] - row.size)
+            #     x.append(row.timestamp_ns - min_ns)
             else:
                 continue
         plt.plot(x, y)
+
+        tmp_out = f"netmmap.csv"
+        if run == 1:
+            # output plot x y to tsv
+            pd.DataFrame({"allocator": "ptmalloc", "elapsed_ns": x, "net_mmap_bytes": y}).to_csv(tmp_out, index=False, sep="\t")
     
     plt.xlabel("elapsed run time (s)")
     plt.ylabel("net mmap'd bytes")

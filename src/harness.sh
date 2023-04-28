@@ -6,7 +6,7 @@ OUT_DIR=$PARENT_DIR/output
 PROG_NAME=$PARENT_DIR/memtest
 STATS_DIR=$PARENT_DIR/stats
 N_ITER=4
-ALLOCATORS="ptmalloc jemalloc hoard"
+ALLOCATORS="hoard"
 
 # per-iteration params
 N_ROUNDS=16
