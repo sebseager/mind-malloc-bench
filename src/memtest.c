@@ -6,7 +6,6 @@
 #include <string.h>
 #include <time.h>
 
-#define BYTE_SIZE 8
 #define NS_PER_SEC 1000000000ULL
 #define ALLOCS_PER_ROUND (1 << 10)
 
@@ -60,7 +59,7 @@ void run_round(round_t *r, unsigned int min_bytes, unsigned int max_bytes) {
   r->n_allocs = 0;
   r->n_bytes = 0;
   for (int i = 0; i < ALLOCS_PER_ROUND; i++) {
-    unsigned int len = rand_between(min_bytes, max_bytes) * BYTE_SIZE;
+    unsigned int len = rand_between(min_bytes, max_bytes);
     r->slots[i] = malloc(len);
     r->n_allocs++;
     r->n_bytes += len;
