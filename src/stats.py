@@ -43,7 +43,9 @@ def parse_strace(*files, out_file=None, delay_us=10):
                 d["return"] =  elts[-2]
                 d["elapsed"] = Decimal(elts[-1][1:-1])
                 # add postive random latency to elapsed time
-                d["elapsed"] += Decimal(abs(np.random.normal(0, delay_us / US_PER_SEC)))
+                if delay_us:
+                    delay = Decimal(abs(np.random.normal(0, delay_us / US_PER_SEC)))
+                    d["elapsed"] += delay
             else:
                 d["return"] = None
                 d["elapsed"] = None
@@ -93,23 +95,21 @@ def parse_strace(*files, out_file=None, delay_us=10):
                     except Exception as e:
                         print(f"error: unfinished call after {first_half} (reason {e})")
                         exit(1)
-                    try:
-                        line = {
-                            "run": first_half["run"],
-                            "pid": pid,  # add this in, not in original line
-                            "state": "complete",
-                            "timestamp_ns": first_half["timestamp_ns"],
-                            "call": first_half["call"],
-                            "return": second_half["return"],
-                            "elapsed": second_half["elapsed"],
-                             "size": first_half["size"]
-                        }
-                    except:
-                        import pdb; pdb.set_trace()
+                    line = {
+                        "run": first_half["run"],
+                        "pid": pid,  # add this in, not in original line
+                        "state": "complete",
+                        "timestamp_ns": first_half["timestamp_ns"],
+                        "call": first_half["call"],
+                        "return": second_half["return"],
+                        "elapsed": second_half["elapsed"],
+                            "size": first_half["size"]
+                    }
                     i += 2  # skip over resumed call
                 else:
                     # shouldn't happen - no completed calls before unfinished
                     print(f"error: bad call order after {pid_lines[i]}")
+                    i += 1
                     exit(1)
                 completed_lines.append(line)
             lines[pid] = completed_lines  # replace with fully completed lines
@@ -242,7 +242,7 @@ def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
 
         # malloc calls: mmap calls
         # ~1 is worst, higher is better
-        stats["mmap_eff"] =  round(mrun_row["n_allocs"] / srun_row["n_mmap"], 6)
+        stats["mmap_eff"] =  round(mrun_row["n_allocs"] / srun_row["n_mmap"], 2)
 
         # size mmap'd : size mallocd'd
         # gives fragmentation -- sense of how much memory is wasted
@@ -252,7 +252,7 @@ def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
         # total elapsed time in mmap : number of mallocs
         # gives average time per malloc
         # lower is better
-        stats["mmap_secs_per_call"] = srun_row["secs_mmap"] / mrun_row["n_allocs"]
+        stats["mmap_latency_us"] = round(srun_row["secs_mmap"] * US_PER_SEC / mrun_row["n_allocs"], 6)
 
         # total elapsed time in mmap : bytes allocated
         # gives average time per byte allocated
@@ -315,15 +315,17 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
 # Plot fragmentation over time for each run.
 # Fragmentation is defined as (mmap'd bytes - munmap'd bytes) / malloc'd bytes.
 def plot_frag(strace_df, memtest_df, out_path):    
-    plt.figure()
-    for run in memtest_df["run"].unique():
+    plt.figure(figsize=(10, 3))
+    for run in memtest_df["run"].unique()[:2]:
         mdf = memtest_df[memtest_df["run"] == run]
         plt.plot(mdf["round"], mdf["frag"], label=f"run {run}")
     plt.xlabel("round")
-    plt.ylabel("fragmentation (mmap'd bytes / malloc'd bytes)")
+    plt.ylabel("fragmentation")
     plt.grid(True, which="both")
     plt.title("Fragmentation over time")
-    # plt.ylim(0, 4)
+    plt.ylim(1, 12)
+    plt.subplots_adjust(bottom=0.2)
+    plt.tight_layout()
     plt.savefig(out_path)
     plt.close()
 
@@ -332,8 +334,8 @@ def plot_frag(strace_df, memtest_df, out_path):
 # This is distinct from fragmentation, which is the ratio of mmap'd to malloc'd bytes.
 # This just gives a sense of the kernel-side activity of the allocator.
 def plot_net_mmap(strace_df, out_path):
-    plt.figure()
-    for run in strace_df["run"].unique()[:2]:
+    plt.figure(figsize=(10, 3))
+    for run in strace_df["run"].unique()[1:3]:
         sdf = strace_df[strace_df["run"] == run].copy()
         first_ts = sdf["timestamp_ns"].min()
         sdf["elapsed_ns"] = sdf["timestamp_ns"] - first_ts
@@ -355,6 +357,8 @@ def plot_net_mmap(strace_df, out_path):
     plt.ylabel("net mmap'd bytes")
     plt.grid(True, which="both")
     plt.title("Net mmap'd bytes over time")
+    plt.subplots_adjust(bottom=0.2)
+    plt.tight_layout()
     plt.savefig(out_path)
     plt.close()
 
