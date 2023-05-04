@@ -9,10 +9,10 @@ STATS_DIR=$PARENT_DIR/stats
 # configuration
 ALLOCATORS="ptmalloc jemalloc hoard"
 N_ITER=4
-N_THREADS=4  # N_ROUNDS % N_THREADS must be 0
+N_THREADS=1  # best if N_ROUNDS % N_THREADS is 0 but should work if not
 
 # per-iteration params
-N_ROUNDS=16
+N_ROUNDS=10
 MIN_ALLOC=$((1<<18))  # to avoid brk, want MIN_ALLOC > M_MMAP_THRESHOLD (default 128KB)
 MAX_ALLOC=$((1<<24))
 

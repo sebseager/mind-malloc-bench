@@ -7,68 +7,131 @@ from matplotlib import pyplot as plt
 from decimal import Decimal
 
 NS_PER_SEC = 1000000000
+US_PER_SEC = 1000000
 
 # Each file is a list of memory-related calls recorded by strace
 # for a single run of arralloc. The format per-line is:
 # [timestamp] [call]([args]) = [return value] <[elapsed time]>
 # The file ends with a message like +++ exited with # +++
 # Read the files into a single pandas DataFrame.
-def parse_strace(*files, out_file=None):
-    dicts = []
+def parse_strace(*files, out_file=None, delay_us=10):
+    def dict_for_line(string):
+        line = string.strip()
+        # empty line, end of file, or syscall interrupted by SIG
+        if line == "" or "+++" in line or "---" in line:
+            return None, None
+        elts = line.split()
+        try:
+            pid = None
+            d = {"state": None}
+            if "[pid" in elts:
+                pid = int(elts[1][:-1])
+                elts = elts[2:]
+            
+            # set state based on whether call is complete
+            if "<unfinished" in elts:  # call interrupted by context switch
+                d["state"] = "unfinished"
+            elif "resumed>)" in elts:  # call resumed from context switch
+                d["state"] = "resumed"
+            else:  # call completed in its entirety
+                d["state"] = "complete"
+            
+            # write fields
+            d["timestamp_ns"] = int(Decimal(elts[0]) * NS_PER_SEC)
+            d["call"] = elts[2] if d["state"] == "resumed" else elts[1].split("(")[0]
+            if d["state"] != "unfinished":
+                d["return"] =  elts[-2]
+                d["elapsed"] = Decimal(elts[-1][1:-1])
+                # add postive random latency to elapsed time
+                d["elapsed"] += Decimal(abs(np.random.normal(0, delay_us / US_PER_SEC)))
+            else:
+                d["return"] = None
+                d["elapsed"] = None
+            if d["state"] != "resumed" and d["call"] in ("mmap", "munmap"):
+                d["size"] = int(elts[2][:-1])
+            else:
+                d["size"] = None
+        except Exception as e:
+            import pdb; pdb.set_trace()
+            print(f"error parsing line: {line} (reason {e})")
+            d = None
+        return pid, d
+
+    dfs = []
     for fp in files:
         try:
-            it = int(re.search(r"\d+", fp.name).group())  # get run number from name
+            # get run number from name
+            run = int(re.search(r"\d+", fp.name).group())
         except:
-            it = -1
+            run = -1
+        lines = {}  # keyed by pid
         with open(fp, "r") as f:
             for line in f:
-                line = line.strip()
-                if line == "":
+                pid, d = dict_for_line(line)
+                if d is None:
                     continue
-                if "+++" in line:  # end of file
-                    continue
-                if "---" in line:  # syscall interrupted by signal
-                    continue
-                elts = line.split()
-                n_elts = len(elts)
-                try:
-                    d = {"run": it}
-                    # preprocessing
-                    if "pid" in elts[0]:
-                        elts = elts[2:]
-                        n_elts -= 2
-                    if "<..." in elts[1]:  # call resumed from context switch
-                        d["timestamp"] = Decimal(elts[0])
-                        d["call"] = elts[2]
-                        d["return"] = elts[5]
-                        d["elapsed"] = Decimal(elts[6][1:-1])
-                    elif "...>" in elts[-1]:  # call unfinished due to context switch
-                        continue
-                    else:  # call completed in its entirety
-                        d["timestamp"] = Decimal(elts[0])
-                        d["call"] = elts[1].split("(")[0]
-                        d["return"] = elts[-2]
-                        d["elapsed"] = Decimal(elts[-1][1:-1])
-                        if d["call"] == "mmap":
-                            d["size"] = int(elts[2].split(",")[0])
-                        elif d["call"] == "munmap":
-                            d["size"] = int(elts[2].split(")")[0])
-                        else:
-                            print("SKIPPINNG CALL TYPE", d["call"])
-                except:
-                    print(f"error parsing line: {line}")
-                    continue
-                dicts.append(d)
-    
+                d = {"run": run, **d}
+                if pid not in lines:
+                    lines[pid] = []
+                lines[pid].append(d)
+        
+        # now combine unfinished/resumed calls
+        # why must strace be this way? damn you, strace.
+        for pid, pid_lines in lines.items():
+            completed_lines = []
+            i = 0
+            while i < len(pid_lines):
+                if pid_lines[i]["state"] == "complete":
+                    line = pid_lines[i]
+                    i += 1
+                elif pid_lines[i]["state"] == "unfinished":
+                    first_half = pid_lines[i]
+                    try:
+                        second_half = pid_lines[i + 1]
+                        assert(second_half["state"] == "resumed")
+                        assert(second_half["call"] == first_half["call"])
+                    except Exception as e:
+                        print(f"error: unfinished call after {first_half} (reason {e})")
+                        exit(1)
+                    try:
+                        line = {
+                            "run": first_half["run"],
+                            "pid": pid,  # add this in, not in original line
+                            "state": "complete",
+                            "timestamp_ns": first_half["timestamp_ns"],
+                            "call": first_half["call"],
+                            "return": second_half["return"],
+                            "elapsed": second_half["elapsed"],
+                             "size": first_half["size"]
+                        }
+                    except:
+                        import pdb; pdb.set_trace()
+                    i += 2  # skip over resumed call
+                else:
+                    # shouldn't happen - no completed calls before unfinished
+                    print(f"error: bad call order after {pid_lines[i]}")
+                    exit(1)
+                completed_lines.append(line)
+            lines[pid] = completed_lines  # replace with fully completed lines
+
+        # now combine lines from different pids
+        all_lines = [l for pid_lines in lines.values() for l in pid_lines]
+        df = pd.DataFrame(all_lines)
+        assert((df["state"] == "complete").all())
+        dfs.append(df)
+
     try:
-        df = pd.DataFrame(dicts)
-        df = df.sort_values(by=["run", "timestamp"])
+        df = pd.concat(dfs, ignore_index=True)
     except Exception:
         print("error: could not parse strace files")
         print(df)
         exit(1)
+    
+    # lines will be in pid order, so interleave by timestamp again
+    df = df.sort_values(by=["run", "timestamp_ns"])
+
     if out_file is not None:
-        df.to_csv(out_file, index=False, sep="\t")
+        df.to_csv(out_file, index=False, sep="\t", na_rep="NULL")
     return df
 
 
@@ -113,7 +176,7 @@ def parse_memtest(*files, out_file=None):
         print(df)
         exit(1)
     if out_file is not None:
-        df.to_csv(out_file, index=False, sep="\t")
+        df.to_csv(out_file, index=False, sep="\t", na_rep="NULL")
     return df
 
 
@@ -135,7 +198,7 @@ def strace_stats(df, out_file=None):
     
     df = pd.DataFrame(all_runs)
     if out_file is not None:
-        df.to_csv(out_file, index=False, sep="\t")
+        df.to_csv(out_file, index=False, sep="\t", na_rep="NULL")
     print("kernel-side stats:")
     print(df.to_string(index=False))
     print()
@@ -147,15 +210,15 @@ def memtest_stats(df, out_file=None):
     for run in df["run"].unique():
         stats = {"run": run}
         run_df = df[df["run"] == run]
-        stats["n_allocs"] = run_df["allocs"].sum()
-        stats["sz_allocs"] = run_df["total_bytes"].sum()
+        stats["n_allocs"] = Decimal(str(run_df["allocs"].sum()))
+        stats["sz_allocs"] = Decimal(str(run_df["total_bytes"].sum()))
         delta_ns = run_df["alloc_end_ns"] - run_df["alloc_start_ns"]
         stats["alloc_secs"] = (delta_ns / NS_PER_SEC).sum()
         all_runs.append(stats)
     
     df = pd.DataFrame(all_runs)
     if out_file is not None:
-        df.to_csv(out_file, index=False, sep="\t")
+        df.to_csv(out_file, index=False, sep="\t", na_rep="NULL")
     print("user-side stats:")
     print(df.to_string(index=False))
     print()
@@ -179,7 +242,7 @@ def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
 
         # malloc calls: mmap calls
         # ~1 is worst, higher is better
-        stats["mmap_eff"] =  mrun_row["n_allocs"] / srun_row["n_mmap"]
+        stats["mmap_eff"] =  round(mrun_row["n_allocs"] / srun_row["n_mmap"], 6)
 
         # size mmap'd : size mallocd'd
         # gives fragmentation -- sense of how much memory is wasted
@@ -201,8 +264,8 @@ def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
     df = pd.DataFrame(all_runs)
     df = df.sort_values(by=["run"])
     if out_file is not None:
-        df.to_csv(out_file, index=False, sep="\t")
-    print("summary stats:")
+        df.to_csv(out_file, index=False, sep="\t", na_rep="NULL")
+    print("summary:")
     print(df.to_string(index=False))
     print()
     return df
@@ -213,48 +276,29 @@ def summary_stats(strace_stats_df, memtest_stats_df, out_file=None):
 # and including the given round. We need this because if the user frees a bunch 
 # of memory in user space, not all of it may be unmapped by kernel.
 def calc_frag_cols(strace_df, memtest_df, out_file=None):
-    # convert timestamps
-    memtest_df["kernel_secs"] = 0
-    strace_df["timestamp_ns"] = (strace_df["timestamp"] * NS_PER_SEC).astype(int)
-    strace_tmp = strace_df.sort_values(by=["timestamp_ns"])  # should be redundant but
+    # assert strace_df's timestamps are monotonically increasing
+    assert(np.all(np.diff(strace_df["timestamp_ns"]) >= 0))
 
+    memtest_df["kernel_secs"] = 0
+    memtest_df["cumul_mmap_bytes"] = 0
+    memtest_df["cumul_munmap_bytes"] = 0
     mrow_i = 0
     for run in memtest_df["run"].unique():
-        mmap_cumsum = 0
-        munmap_cumsum = 0
-        time_col = "end"
-        srun_df = strace_df[strace_df["run"] == run]
-
-        # time_col needs explaining:
-        # think about iterating through the strace rows in order of timestamp;
-        # as soon as we hit the first end_time, that's cumul_mmap for the first round;
-        # as soon as we hit the second start_time, that's cumul_unmap for second round
-
-        for srow in srun_df.itertuples(index=False):
-            if srow.timestamp_ns > memtest_df.loc[mrow_i, f"alloc_{time_col}_ns"]:
-                if time_col == "end":
-                    memtest_df.loc[mrow_i, "cumul_mmap_bytes"] = mmap_cumsum
-                    time_col = "start"
-                else:
-                    mrow_i += 1
-                    if mrow_i >= memtest_df.shape[0]:
-                        break
-                    if memtest_df.loc[mrow_i, "run"] != run:
-                        break
-                    memtest_df.loc[mrow_i, "cumul_munmap_bytes"] = munmap_cumsum
-                    time_col = "end"
-            if srow.call == "mmap":
-                mmap_cumsum += srow.size
-                memtest_df.loc[mrow_i, "kernel_secs"] += srow.elapsed
-            elif srow.call == "munmap":
-                munmap_cumsum += srow.size
-                memtest_df.loc[mrow_i, "kernel_secs"] += srow.elapsed
-            else:
-                # skip brk, etc.
-                continue
-
-    # clean up
-    memtest_df["cumul_munmap_bytes"] = memtest_df["cumul_munmap_bytes"].fillna(0)
+        sdf = strace_df[strace_df["run"] == run]
+        for row in memtest_df[memtest_df["run"] == run].itertuples():
+            start_ts = row.alloc_start_ns
+            end_ts = row.alloc_end_ns
+            mmap_mask = (sdf["call"] == "mmap") & (sdf["timestamp_ns"] <= end_ts)
+            munmap_mask = (sdf["call"] == "munmap") & (sdf["timestamp_ns"] <= start_ts)
+            et_mask = (sdf["timestamp_ns"] >= start_ts) & (sdf["timestamp_ns"] <= end_ts)
+            mmap_sum = sdf[mmap_mask]["size"].sum()
+            munmap_sum = sdf[munmap_mask]["size"].sum()
+            kernel_secs_sum = sdf[et_mask]["elapsed"].sum()
+            
+            # now set this row's kernel_secs, cumul_mmap_bytes, and cumul_munmap_bytes
+            memtest_df.at[row.Index, "kernel_secs"] = kernel_secs_sum
+            memtest_df.at[row.Index, "cumul_mmap_bytes"] = mmap_sum
+            memtest_df.at[row.Index, "cumul_munmap_bytes"] = munmap_sum
 
     # calculate fragmentation
     numer = memtest_df["cumul_mmap_bytes"] - memtest_df["cumul_munmap_bytes"]
@@ -265,7 +309,7 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
     print(memtest_df.to_string(index=False))
     print()
     if out_file is not None:
-        memtest_df.to_csv(out_file, index=False, sep="\t")
+        memtest_df.to_csv(out_file, index=False, sep="\t", na_rep="NULL")
 
 
 # Plot fragmentation over time for each run.
@@ -273,15 +317,13 @@ def calc_frag_cols(strace_df, memtest_df, out_file=None):
 def plot_frag(strace_df, memtest_df, out_path):    
     plt.figure()
     for run in memtest_df["run"].unique():
-        run_df = memtest_df[memtest_df["run"] == run].copy()
-        min_time = run_df["alloc_start_ns"].min()
-        run_df["elapsed_start_ns"] = run_df["alloc_start_ns"] - min_time
-        plt.plot(run_df["elapsed_start_ns"], run_df["frag"], label=f"run {run}")
-    plt.xlabel("elapsed run time (s)")
+        mdf = memtest_df[memtest_df["run"] == run]
+        plt.plot(mdf["round"], mdf["frag"], label=f"run {run}")
+    plt.xlabel("round")
     plt.ylabel("fragmentation (mmap'd bytes / malloc'd bytes)")
     plt.grid(True, which="both")
     plt.title("Fragmentation over time")
-    plt.ylim(0, 4)
+    # plt.ylim(0, 4)
     plt.savefig(out_path)
     plt.close()
 
@@ -291,21 +333,20 @@ def plot_frag(strace_df, memtest_df, out_path):
 # This just gives a sense of the kernel-side activity of the allocator.
 def plot_net_mmap(strace_df, out_path):
     plt.figure()
-    strace_df["timestamp_ns"] = (strace_df["timestamp"] * NS_PER_SEC).astype(int)
     for run in strace_df["run"].unique()[:2]:
-        run_df = strace_df[strace_df["run"] == run].copy()
-        min_time = run_df["timestamp_ns"].min()
-        run_df["elapsed_ns"] = run_df["timestamp_ns"] - min_time
+        sdf = strace_df[strace_df["run"] == run].copy()
+        first_ts = sdf["timestamp_ns"].min()
+        sdf["elapsed_ns"] = sdf["timestamp_ns"] - first_ts
         
         y = [0]  # net mmap
         x = [0]  # elapsed time
-        for row in run_df.itertuples(index=False):
+        for row in sdf.itertuples(index=False):
             if row.call == "mmap":
                 y.append(y[-1] + row.size)
-                x.append(row.elapsed_ns)
+                x.append(row.elapsed_ns / NS_PER_SEC)
             elif row.call == "munmap":
                 y.append(y[-1] - row.size)
-                x.append(row.elapsed_ns)
+                x.append(row.elapsed_ns / NS_PER_SEC)
             else:
                 continue
         plt.plot(x, y)
@@ -338,6 +379,7 @@ def parse_args():
     parser.add_argument("-f", nargs="+", required=True,
                         help="strace output files (with flags -e trace=memory -ttt -T)")
     parser.add_argument("-o", nargs=1, required=True, help="output directory")
+    parser.add_argument("-u", nargs="?", default=10, type=int, help="mean artificial latency to add in microseconds")
     parser.add_argument("--plot", action="store_true", help="plot the results")
     args = parser.parse_args()
 
@@ -358,7 +400,7 @@ def main():
     r = re.compile(r"strace.*\.out")
 
     sfiles = [f for f in args.f if re.match(r"strace.*\.out", f.name)]
-    sdata_df = parse_strace(*sfiles, out_file=args.o / "strace_detail.tsv")
+    sdata_df = parse_strace(*sfiles, out_file=args.o / "strace_detail.tsv", delay_us=args.u)
 
     # read memtest files (prog_*.out) into df
     mfiles = [f for f in args.f if re.match(r"prog.*\.out", f.name)]
