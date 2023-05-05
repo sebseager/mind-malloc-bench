@@ -18,10 +18,9 @@ While the glibc allocator works well on traditional systems, memory disaggregati
 
 ## Usage
 
-1. First, use `./install.sh` (modifying it as needed) to download and build allocators to a temporary directory at the script path.
-2. The test harness, `./harness.sh` can now be configured and called directly to run the whole test pipeline automatically.
+To reproduce our results, use `./install.sh` (modifying it as needed) to download and build allocators to a temporary directory at the script path. The test harness, `./harness.sh` can now be configured and called directly to run the whole test pipeline automatically.
 
-The test pipeline consists of the following components
+The test pipeline consists of the following components:
 
 1. `Makefile` provides targets for compiling our `memtest` program with each of the allocators. We assume glibc allocator (labeled `ptmalloc`) is the default system malloc. These targets can be modified to test different linking strategies or add allocators to the test framework as needed.
 2. `memtest.c` provides a configurable multi-round allocation benchmark with support for multithreaded testing. It can be built with `make <target>` (refer to `Makefile`). Call it without arguments for usage.
