@@ -32,5 +32,4 @@ The test pipeline consists of the following components:
 
 ## Acknowledgements
 
-- [Prof. Anurag Khandelwal](https://www.anuragkhandelwal.com/) ([GitHub](https://github.com/anuragkh))
-- [Seung-seob Lee](https://www.seungseoblee.com/blog/) ([GitHub](https://github.com/shsym))
+Thank you to [Prof. Anurag Khandelwal](https://www.anuragkhandelwal.com/) ([GitHub](https://github.com/anuragkh)) and [Seung-seob Lee](https://www.seungseoblee.com/blog/) ([GitHub](https://github.com/shsym)) for their advice and support throughout this project.
