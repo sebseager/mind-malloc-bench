@@ -1,6 +1,6 @@
 # An Analysis of Memory Allocation Strategies for MIND
 
-This repository accompanies a thesis submitted to the Yale University Department of Computer Science in partial fulfillment of the requirements for the degree of Bachelor of Science.
+Department of Computer Science, Yale University. Spring 2023.
 
 ## Introduction
 
